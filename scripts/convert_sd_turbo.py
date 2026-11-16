@@ -3,7 +3,6 @@
 Genera en ./out:
   - sdturbo_text_encoder_int8.onnx
   - sdturbo_unet_int8.onnx        (MatMul + Conv cuantizados: equilibrado, móvil)
-  - sdturbo_unet_int8mm.onnx      (solo MatMul cuantizado: más calidad, PC)  [si cabe < 2 GB]
   - sdturbo_vae_encoder.onnx / sdturbo_vae_decoder.onnx (VAE completo, fp32)
   - taesd_encoder.onnx / taesd_decoder.onnx (autoencoder diminuto madebyollin/taesd, MIT)
   - vocab.json, merges.txt, manifest.json
@@ -140,7 +139,6 @@ def export_all():
     log("Cuantizando…")
     quant(f"{RAW}/te/model.onnx", f"{OUT}/sdturbo_text_encoder_int8.onnx", ["MatMul", "Gemm"])
     quant(f"{RAW}/unet/model.onnx", f"{OUT}/sdturbo_unet_int8.onnx", ["MatMul", "Gemm", "Conv"])
-    quant(f"{RAW}/unet/model.onnx", f"{OUT}/sdturbo_unet_int8mm.onnx", ["MatMul", "Gemm"])
     single_file(f"{RAW}/vae_encoder/model.onnx", f"{OUT}/sdturbo_vae_encoder.onnx")
     single_file(f"{RAW}/vae_decoder/model.onnx", f"{OUT}/sdturbo_vae_decoder.onnx")
     single_file(f"{RAW}/taesd_encoder/model.onnx", f"{OUT}/taesd_encoder.onnx")

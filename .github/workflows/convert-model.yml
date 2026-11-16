@@ -36,6 +36,23 @@ jobs:
       - name: Verificar con ONNX Runtime 1.15 (el de la app)
         run: |
           pip install --no-cache-dir --force-reinstall "onnxruntime==1.15.1" "numpy<2"
+          # ORT 1.15 marca la pila como ejecutable y el glibc actual lo rechaza: se limpia la marca
+          python - <<'EOF'
+          import glob, site, struct
+          for p in glob.glob(site.getsitepackages()[0] + "/onnxruntime/capi/*.so"):
+              with open(p, "r+b") as f:
+                  h = f.read(64)
+                  phoff = struct.unpack_from("<Q", h, 0x20)[0]
+                  phentsize, phnum = struct.unpack_from("<HH", h, 0x36)
+                  for i in range(phnum):
+                      off = phoff + i * phentsize
+                      f.seek(off)
+                      ptype, pflags = struct.unpack("<II", f.read(8))
+                      if ptype == 0x6474E551 and pflags & 1:
+                          f.seek(off + 4)
+                          f.write(struct.pack("<I", pflags & ~1))
+                          print("execstack limpiado en", p)
+          EOF
           python scripts/convert_sd_turbo.py --verify
       - uses: actions/upload-artifact@v4
         with:
