@@ -112,21 +112,6 @@ const catalog = <ModelVariant>[
     speed: 'Rápida',
     approxBytes: 1600000000,
   ),
-  ModelVariant(
-    id: 'sdturbo-int8mm',
-    task: ModelTask.photo,
-    name: 'Calidad · PC',
-    summary:
-        'Solo las capas de atención en 8 bits; convoluciones en precisión completa. '
-        'Máxima fidelidad de color y detalle, a cambio de más memoria y tiempo. Recomendado en PC.',
-    unetFile: 'sdturbo_unet_int8mm.onnx',
-    minRamGb: 8,
-    recRamGb: 12,
-    pcOnly: true,
-    quality: 'Excelente',
-    speed: 'Media',
-    approxBytes: 2400000000,
-  ),
 ];
 
 /// Perfil del dispositivo para recomendar el modelo.
@@ -188,7 +173,6 @@ class DeviceProfile {
       return known && ramGb >= 11 ? byId('sdturbo-int8') : byId('sdturbo-lite');
     }
     if (!known) return byId('sdturbo-int8');
-    if (ramGb >= 15) return byId('sdturbo-int8mm');
     if (ramGb >= 7) return byId('sdturbo-int8');
     return byId('sdturbo-lite');
   }
@@ -241,7 +225,7 @@ class ModelManager extends ChangeNotifier {
   String? activeId;
   int size = 512;
   AiEngine engine = AiEngine.auto;
-  double strength = 0.5;
+  int fidelity = 1; // 0 fiel al render, 1 equilibrada, 2 más realista
   DeviceProfile? device;
   bool _loaded = false;
 
@@ -261,7 +245,7 @@ class ModelManager extends ChangeNotifier {
       activeId = sp.getString('ai.active');
       size = sp.getInt('ai.size') ?? device!.recommendedSize;
       engine = AiEngine.values[sp.getInt('ai.engine') ?? device!.recommendedEngine.index];
-      strength = sp.getDouble('ai.strength') ?? 0.5;
+      fidelity = (sp.getInt('ai.fidelity') ?? 1).clamp(0, 2);
     } catch (_) {}
     final d = await dir();
     final mf = File('${d.path}${Platform.pathSeparator}manifest.json');
@@ -286,7 +270,7 @@ class ModelManager extends ChangeNotifier {
       if (activeId != null) await sp.setString('ai.active', activeId!);
       await sp.setInt('ai.size', size);
       await sp.setInt('ai.engine', engine.index);
-      await sp.setDouble('ai.strength', strength);
+      await sp.setInt('ai.fidelity', fidelity);
     } catch (_) {}
     notifyListeners();
   }
@@ -467,8 +451,8 @@ class ModelManager extends ChangeNotifier {
       vaeScale: vaeScaleFor(m),
       prompt: prompt,
       size: size,
-      steps: 2,
-      strength: strength,
+      steps: fidelitySteps[fidelity].$1,
+      strength: fidelitySteps[fidelity].$2,
       initRgba: initRgba,
       seed: seed,
       threads: device?.recommendedThreads ?? 4,
@@ -480,6 +464,15 @@ class ModelManager extends ChangeNotifier {
 }
 
 class _Cancelled implements Exception {}
+
+/// (pasos del planificador, fuerza img2img) → pasos UNet efectivos 1, 1 y 2.
+const fidelitySteps = <(int, double)>[(4, 0.25), (2, 0.5), (3, 0.67)];
+const fidelityLabels = ['Fiel al render', 'Equilibrada', 'Más realista'];
+const fidelityHelp = [
+  'Respeta la geometría y los colores del render; solo añade texturas y luz.',
+  'Equilibrio entre la estructura calculada y el realismo fotográfico.',
+  'Más libertad para el entorno y los materiales (puede alterar detalles).',
+]; 
 
 String fmtBytes(int b) {
   if (b <= 0) return '—';

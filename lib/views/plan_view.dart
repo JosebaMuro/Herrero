@@ -215,20 +215,15 @@ class SheetPainter extends CustomPainter {
       dashedLine(c, f(-1.1, d.gridY[j]), f(xMax + 0.6, d.gridY[j]), axisPen, dash: 12, gap: 3);
       drawAxisBubble(c, f(-1.3, d.gridY[j]), axisLetter(j));
     }
-    final order = [
-      MemberRole.purlin,
-      MemberRole.joist,
-      MemberRole.brace,
-      MemberRole.tie,
-      MemberRole.beam,
-      MemberRole.rafter,
-      MemberRole.handrail,
-    ];
-    final ms = d.members.where((m) => order.contains(m.role)).toList()
-      ..sort((a, b) => order.indexOf(a.role).compareTo(order.indexOf(b.role)));
+    bool vertical(Member m) => _near(m.a.x, m.b.x) && _near(m.a.y, m.b.y);
+    final ms = d.members.where((m) => !vertical(m) && m.role != MemberRole.baluster).toList()
+      ..sort((a, b) => (a.a.z + a.b.z).compareTo(b.a.z + b.b.z));
     _members(c, ms, p, sc * 0.6);
-    // pilares en planta
-    for (final m in d.members.where((m) => m.role == MemberRole.column || m.role == MemberRole.gablePost)) {
+    // pilares, postes y montantes en planta
+    final seen = <String>{};
+    for (final m in d.members.where((m) => vertical(m) && m.role != MemberRole.baluster)) {
+      final key = '${m.a.x.toStringAsFixed(2)}|${m.a.y.toStringAsFixed(2)}';
+      if (!seen.add(key)) continue;
       final s = math.max(5.0, m.profile.h / 1000 * sc);
       final w = math.max(5.0, m.profile.b / 1000 * sc);
       final horiz = m.webDir.y.abs() > 0.5;
@@ -239,13 +234,20 @@ class SheetPainter extends CustomPainter {
       drawDim(c, f(d.frameX[i], yMax), f(d.frameX[i + 1], yMax), -22, fmt(d.frameX[i + 1] - d.frameX[i]));
     }
     drawDim(c, f(0, yMax), f(xMax, yMax), -40, fmt(xMax));
-    drawDim(c, f(xMax, 0), f(xMax, yMax), 24, fmt(yMax));
+    if (yMax > 0.3) drawDim(c, f(xMax, 0), f(xMax, yMax), 24, fmt(yMax));
     _legend(c, area, sc);
   }
 
   void _detail(Canvas c, Rect area) {
+    if (d.plates.isEmpty) {
+      drawText(c, 'Sin placas de anclaje: ver uniones y soldaduras en la memoria.', area.center, size: 11);
+      return;
+    }
     final pa = d.plates.firstWhere((p) => p.mark == 'PA1', orElse: () => d.plates.first);
-    final col = d.members.firstWhere((m) => m.role == MemberRole.column).profile;
+    final col = d.members
+        .firstWhere((m) => m.role == MemberRole.column || m.role == MemberRole.post || m.role == MemberRole.frame,
+            orElse: () => d.members.first)
+        .profile;
     final w = pa.w, h = pa.h;
     final half = Rect.fromLTRB(area.left, area.top, area.center.dx - 10, area.bottom);
     final sc = math.min(half.width / (w + 160), half.height / (h + 160));
@@ -255,9 +257,9 @@ class SheetPainter extends CustomPainter {
     c.drawRect(plate, Paint()..color = const Color(0xFFCFD8DC));
     c.drawRect(plate, Paint()..color = _ink..style = PaintingStyle.stroke..strokeWidth = 1.2);
     final colPaint = Paint()..color = const Color(0xFF1565C0);
-    if (col.family == ProfileFamily.shs) {
-      c.drawRect(Rect.fromCenter(center: ctr, width: col.b * sc, height: col.b * sc), colPaint);
-      c.drawRect(Rect.fromCenter(center: ctr, width: (col.b - 2 * col.tw) * sc, height: (col.b - 2 * col.tw) * sc),
+    if (col.family == ProfileFamily.shs || col.family == ProfileFamily.rhs) {
+      c.drawRect(Rect.fromCenter(center: ctr, width: col.b * sc, height: col.h * sc), colPaint);
+      c.drawRect(Rect.fromCenter(center: ctr, width: (col.b - 2 * col.tw) * sc, height: (col.h - 2 * col.tw) * sc),
           Paint()..color = const Color(0xFFCFD8DC));
     } else {
       // I: alas paralelas a x

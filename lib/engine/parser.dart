@@ -1,7 +1,9 @@
 import 'dart:math' as math;
 
+import 'catalog.dart';
 import 'model.dart';
 import 'profiles.dart';
+import 'vocabulary.dart';
 
 /// Normaliza el texto: minúsculas, sin tildes, coma decimal -> punto.
 String normalize(String s) {
@@ -14,9 +16,14 @@ String normalize(String s) {
   }
   return sb
       .toString()
+      // separador de miles español: 10.000 -> 10000
+      .replaceAllMapped(RegExp(r'(?<![\d.,])(\d{1,3})((?:\.\d{3})+)(?![\d.,])'),
+          (m) => '${m[1]}${m[2]!.replaceAll('.', '')}')
       .replaceAllMapped(RegExp(r'(\d),(\d)'), (m) => '${m[1]}.${m[2]}');
 }
 
+
+String _fmt(double v) => v.toStringAsFixed(v % 1 == 0 ? 0 : 2).replaceAll('.', ',');
 
 double _toM(String n, String? unit) {
   final v = double.parse(n);
@@ -109,26 +116,51 @@ const List<String> _windZoneC = [
   'almeria',
 ];
 
+/// Elige la tipología: gana la palabra clave de más peso y, a igualdad, la que
+/// aparece antes (el sustantivo principal suele ir primero).
+StructureType detectType(String t, List<String> notes) {
+  StructureType? best;
+  var bestScore = -1.0;
+  for (final ty in typologies) {
+    for (final e in ty.keywords.entries) {
+      final m = RegExp('(?<![a-z])${RegExp.escape(e.key)}(?![a-z])').firstMatch(t);
+      if (m == null) continue;
+      final score = e.value * 1000.0 + e.key.length * 10 - m.start * 0.5;
+      if (score > bestScore) {
+        bestScore = score;
+        best = ty.type;
+      }
+    }
+  }
+  for (final h in unsupportedHints.entries) {
+    if (RegExp('(?<![a-z])${RegExp.escape(h.key)}').hasMatch(t)) {
+      notes.add(h.value.$2);
+      best ??= h.value.$1;
+      break;
+    }
+  }
+  if (best == null) {
+    // Sin tipología reconocible: se decide por la forma de la petición
+    if (RegExp(r'kg/m|uso|oficina|almacenar').hasMatch(t)) {
+      best = StructureType.entreplanta;
+    } else if (RegExp(r'coche|vehiculo|sombra').hasMatch(t)) {
+      best = StructureType.marquesina;
+    } else {
+      best = StructureType.nave;
+    }
+    notes.add('No se reconoce la tipología: se toma «${best.label}». Tipologías disponibles: '
+        '${typologies.map((e) => e.type.label).join('; ')}.');
+  }
+  return best;
+}
+
 /// Interpreta el prompt en lenguaje natural y devuelve la especificación.
 StructureSpec parsePrompt(String prompt) {
-  final t = normalize(prompt);
+  final t = canonicalize(normalize(prompt));
   final notes = <String>[];
 
-  // --- Tipo de estructura --------------------------------------------------
-  StructureType type;
-  if (RegExp(r'altillo|entreplanta|entre planta|forjado|plataforma|mezzanine|altell|tarima elevada|piso intermedio')
-      .hasMatch(t)) {
-    type = StructureType.entreplanta;
-  } else if (RegExp(r'marquesina|pergola|porche|cobertizo|carport|cochera|parking|aparcamiento|tejavana|voladizo|sombraje|toldo')
-      .hasMatch(t)) {
-    type = StructureType.marquesina;
-  } else if (RegExp(r'nave|portico|almacen|hangar|taller|granja|establo|pabellon|cubierta a dos aguas')
-      .hasMatch(t)) {
-    type = StructureType.nave;
-  } else {
-    type = StructureType.nave;
-    notes.add('No se reconoce el tipo de estructura: se asume nave de pórticos.');
-  }
+  // --- Tipo de estructura (catálogo de tipologías con sinónimos) ---------
+  final type = detectType(t, notes);
 
   // --- Dimensiones ---------------------------------------------------------
   double? length = _find(t, [
@@ -176,7 +208,107 @@ StructureSpec parsePrompt(String prompt) {
     notes.add('Solo se indica superficie: se supone planta de ${length}x$width m.');
   }
 
+  // Cancelas, vallas y barandillas: "A x B" es hueco/longitud x altura
+  const linear = [StructureType.cancela, StructureType.valla, StructureType.barandilla];
+  if (linear.contains(type) && height == null && width != null && dm != null) {
+    height = width;
+    width = null;
+  }
+  // Medida suelta "de 3 m" sin palabra clave: según la tipología
+  final bare = RegExp(r'(?:de|con|a)\s+(\d+(?:\.\d+)?)\s*(mm|cm|m)(?:etros?|ts?)?\b(?!\s*(?:de\s+)?(?:ancho|anchura|largo|alto|altura|fondo|luz|hueco))')
+      .firstMatch(t);
+  if (bare != null && dm == null) {
+    final v = _toM(bare[1]!, bare[2]);
+    switch (type) {
+      case StructureType.escalera:
+      case StructureType.torre:
+        height ??= v;
+        break;
+      case StructureType.barandilla:
+      case StructureType.valla:
+      case StructureType.pasarela:
+        length ??= v;
+        break;
+      case StructureType.cancela:
+        length ??= v;
+        break;
+      case StructureType.cercha:
+      case StructureType.portico:
+        width ??= v;
+        break;
+      default:
+        break;
+    }
+  }
+  final hueco = _find(t, ['hueco\\s*(?:libre\\s*)?(?:de|:)?\\s*(?<n>\\d+(?:\\.\\d+)?)\\s*(?<u>mm|cm|m)?']);
+  if (hueco != null && type == StructureType.cancela) length = hueco;
+
+  final ridge = _find(t, ['cumbrera\\s*(?:de|:|=|a)?\\s*(?<n>\\d+(?:\\.\\d+)?)\\s*(?<u>mm|cm|m)?']);
+  final heightGiven = height != null;
+
+  double def(String what, double v) {
+    notes.add('Sin $what indicado: se supone ${v.toString().replaceAll('.', ',')} m.');
+    return v;
+  }
+
   switch (type) {
+    case StructureType.escalera:
+      height ??= def('altura a salvar', 3.0);
+      if (width == null || width > 3) width = def('ancho de paso', 1.0);
+      length = 0; // el desarrollo lo calcula el diseño
+      break;
+    case StructureType.pasarela:
+      length ??= def('longitud', 6.0);
+      width ??= def('ancho útil', 1.0);
+      height ??= def('altura', 3.0);
+      break;
+    case StructureType.barandilla:
+      length ??= def('longitud', 10.0);
+      if (height == null || height > 1.5) {
+        final fall = height;
+        final hr = (fall != null && fall > 6) || RegExp(r'publica|comercial|colegio|1\.1').hasMatch(t) ? 1.1 : 0.9;
+        height = hr;
+        notes.add('Altura de barandilla ${hr.toStringAsFixed(2).replaceAll('.', ',')} m (CTE DB-SUA 1: 0,90 m si la caída es ≤ 6 m; 1,10 m en el resto).');
+      }
+      width = 0;
+      break;
+    case StructureType.cercha:
+      width ??= def('luz de cercha', 10.0);
+      length ??= def('longitud de cubierta', 12.0);
+      height ??= def('altura de apoyo', 3.0);
+      break;
+    case StructureType.torre:
+      length ??= def('lado de la base', 2.0);
+      width ??= length;
+      height ??= def('altura', 3.0);
+      break;
+    case StructureType.estanteria:
+      final pallets = RegExp(r'pale|palet|paleta|rack|carretilla').hasMatch(t);
+      length ??= def('largo', pallets ? 5.6 : 3.0);
+      width ??= def('fondo', pallets ? 1.1 : 0.6);
+      height ??= def('altura', pallets ? 4.5 : 2.5);
+      break;
+    case StructureType.cancela:
+      length ??= def('hueco libre', RegExp(r'peatonal').hasMatch(t) ? 1.0 : 3.0);
+      height ??= def('altura', 2.0);
+      width = 0;
+      break;
+    case StructureType.valla:
+      length ??= def('longitud', 20.0);
+      height ??= def('altura', 2.0);
+      width = 0;
+      break;
+    case StructureType.portico:
+      width ??= def('luz entre patas', 4.0);
+      height ??= def('altura bajo viga', 3.0);
+      length = 0;
+      break;
+    case StructureType.poste:
+      final sign = RegExp(r'cartel|letrero|publicitari|rotulo|totem|pantalla').hasMatch(t);
+      length ??= def(sign ? 'ancho del cartel' : 'ancho de la placa/bandera', sign ? 3.0 : 0.6);
+      width ??= def(sign ? 'alto del cartel' : 'alto de la placa/bandera', sign ? 1.5 : 0.4);
+      height ??= def('altura libre', sign ? 3.0 : 6.0);
+      break;
     case StructureType.nave:
       if (width == null) {
         width = 12;
@@ -222,9 +354,12 @@ StructureSpec parsePrompt(String prompt) {
   }
 
   // --- Pendiente ------------------------------------------------------------
-  double slope = type == StructureType.nave
-      ? 10
-      : (type == StructureType.marquesina ? 5 : 0);
+  double slope = switch (type) {
+    StructureType.nave => 10,
+    StructureType.marquesina => 5,
+    StructureType.cercha => 20,
+    _ => 0,
+  };
   final sp = RegExp(r'pendiente\s*(?:de|del)?\s*(\d+(?:\.\d+)?)\s*(%|por ?ciento|grados|º|°)?')
       .firstMatch(t);
   if (sp != null) {
@@ -235,9 +370,14 @@ StructureSpec parsePrompt(String prompt) {
       slope = v;
     }
   }
-  if (RegExp(r'cubierta plana|techo plano|plana').hasMatch(t) &&
-      type != StructureType.entreplanta) {
+  if (RegExp(r'cubierta plana|techo plano|plana').hasMatch(t) && type.hasRoof) {
     slope = type == StructureType.nave ? 3 : 2;
+  }
+  if (ridge != null && !heightGiven && type.hasRoof && slope > 0) {
+    final rise = (type == StructureType.marquesina ? width : width / 2) * slope / 100;
+    height = math.max(2.0, double.parse((ridge - rise).toStringAsFixed(2)));
+    notes.removeWhere((n) => n.startsWith('Sin altura'));
+    notes.add('Altura a cumbrera ${_fmt(ridge)} m con pendiente ${_fmt(slope)} %: altura al alero ${_fmt(height)} m.');
   }
 
   // --- Separación entre pórticos ------------------------------------------
@@ -257,7 +397,7 @@ StructureSpec parsePrompt(String prompt) {
   }
 
   // --- Cubierta -------------------------------------------------------------
-  String roofing = 'chapa grecada';
+  var roofing = 'chapa grecada';
   if (RegExp(r'sandwich').hasMatch(t)) {
     roofing = 'panel sándwich';
   } else if (RegExp(r'policarbonato').hasMatch(t)) {
@@ -303,7 +443,7 @@ StructureSpec parsePrompt(String prompt) {
     snow = 1.5;
     notes.add('Zona de montaña: se toma nieve 1,5 kN/m² (verificar con la altitud real).');
   }
-  if (type == StructureType.entreplanta) snow = 0;
+  if (!type.hasRoof) snow = 0;
 
   // --- Viento ---------------------------------------------------------------
   double wind = 0.45;
@@ -313,8 +453,10 @@ StructureSpec parsePrompt(String prompt) {
   } else if (_windZoneC.any(t.contains)) {
     wind = 0.52;
   }
-  if (RegExp(r'interior|dentro de (?:una )?nave|bajo cubierta').hasMatch(t) ||
-      type == StructureType.entreplanta) {
+  final indoorType = type == StructureType.entreplanta ||
+      type == StructureType.estanteria ||
+      (type == StructureType.portico && !t.contains('exterior'));
+  if (RegExp(r'interior|dentro de (?:una )?nave|bajo cubierta').hasMatch(t) || indoorType) {
     wind = 0;
   }
 
@@ -345,6 +487,38 @@ StructureSpec parsePrompt(String prompt) {
       use = 'uso general (supuesto)';
       notes.add('Uso de la entreplanta no indicado: se toman 3 kN/m².');
     }
+  } else if (type == StructureType.escalera) {
+    final pub = RegExp(r'publica|comercial|industrial|incendio|emergencia|evacuacion|colegio').hasMatch(t);
+    live = pub ? 4 : 3;
+    use = pub ? 'escalera de uso público / evacuación' : 'escalera de uso privado';
+  } else if (type == StructureType.pasarela) {
+    if (RegExp(r'peatonal|publica|puente').hasMatch(t)) {
+      live = 5;
+      use = 'pasarela peatonal pública (aglomeración)';
+    } else if (RegExp(r'mantenimiento|inspeccion|acceso a maquina').hasMatch(t)) {
+      live = 2;
+      use = 'pasarela de mantenimiento (EN ISO 14122-2)';
+    } else {
+      live = 3;
+      use = 'pasarela de acceso (uso general)';
+    }
+  } else if (type == StructureType.barandilla) {
+    if (RegExp(r'estadio|grada|aglomeracion|concierto').hasMatch(t)) {
+      live = 3.0;
+      use = 'zona de aglomeración (C5)';
+    } else if (RegExp(r'publica|comercial|colegio|oficina|industrial|hotel').hasMatch(t)) {
+      live = 1.6;
+      use = 'zona pública / comercial';
+    } else {
+      live = 0.8;
+      use = 'uso residencial / privado';
+    }
+  } else if (type == StructureType.torre && RegExp(r'plataforma|mirador|atalaya').hasMatch(t)) {
+    live = 3;
+    use = 'plataforma accesible';
+  } else if (!type.hasRoof) {
+    live = 0;
+    use = '';
   } else {
     live = 0.4; // G1: cubiertas accesibles solo para conservación
     use = 'cubierta accesible solo para conservación (G1)';
@@ -362,14 +536,118 @@ StructureSpec parsePrompt(String prompt) {
   if (t.contains('s355')) grade = s355;
   if (t.contains('s235')) grade = s235;
   String finish = 'pintado (imprimación + esmalte)';
-  if (t.contains('galvaniz')) finish = 'galvanizado en caliente';
-  if (t.contains('oxid') || t.contains('corten')) finish = 'acero corten';
-  if (t.contains('lacad') || t.contains('negro')) finish = 'lacado en negro';
-  final railing = type == StructureType.entreplanta
-      ? !RegExp(r'sin barandilla').hasMatch(t)
-      : RegExp(r'barandilla').hasMatch(t);
+  final color = RegExp(r'(negro|blanco|gris antracita|antracita|gris|verde|rojo|marron|azul|oxiron|ral ?\d{4})')
+      .firstMatch(t)?[1];
+  if (t.contains('galvaniz')) {
+    finish = 'galvanizado en caliente';
+    if (t.contains('lacad') || t.contains('pintad')) finish = 'galvanizado + lacado${color != null ? ' en $color' : ''}';
+  } else if (t.contains('corten')) {
+    finish = 'acero corten';
+  } else if (t.contains('inox')) {
+    finish = 'acero inoxidable';
+    notes.add('Acero inoxidable: el predimensionado se hace con acero al carbono S275; el inoxidable (EN 1993-1-4) '
+        'tiene otro módulo y resistencia, revisar con el fabricante.');
+  } else if (t.contains('lacad') || color != null) {
+    finish = 'lacado en ${color ?? 'negro'}';
+  }
+  final noRail = RegExp(r'sin barandilla').hasMatch(t);
+  final railing = switch (type) {
+    StructureType.entreplanta || StructureType.escalera || StructureType.pasarela || StructureType.barandilla =>
+      !noRail || type == StructureType.barandilla,
+    StructureType.torre => !noRail && RegExp(r'plataforma|mirador|atalaya|barandilla').hasMatch(t),
+    _ => RegExp(r'barandilla').hasMatch(t),
+  };
+
+  // --- Cargas concentradas, niveles y subtipo ------------------------------
+  double pointLoad = 0;
+  final liters = RegExp(r'(\d+(?:\.\d+)?)\s*(litros|l\b|m3|m³|metros cubicos)').firstMatch(t);
+  final mass = RegExp(r'(\d+(?:\.\d+)?)\s*(kg|kilos|t\b|tn\b|toneladas)(?!\s*/\s*m)').firstMatch(t);
+  final pal = RegExp(r'(\d+)\s*(?:pales|palets|paletas|pale|palet)\s*(?:de\s*)?(\d+(?:\.\d+)?)\s*(kg|t)').firstMatch(t);
+  if (pal != null) {
+    final kg = double.parse(pal[2]!) * (pal[3] == 't' ? 1000 : 1);
+    pointLoad = int.parse(pal[1]!) * kg / 100;
+  } else if (liters != null) {
+    final v = double.parse(liters[1]!);
+    final l = liters[2]!.startsWith('m') ? v * 1000 : v;
+    pointLoad = l / 100 * 1.1; // agua + 10 % del propio depósito
+    notes.add('Depósito de ${l.toStringAsFixed(0)} l: carga ${(pointLoad).toStringAsFixed(1).replaceAll('.', ',')} kN (agua + 10 % del depósito).');
+  } else if (mass != null) {
+    final v = double.parse(mass[1]!);
+    pointLoad = mass[2]!.startsWith('t') ? v * 10 : v / 100;
+  }
+  final lv = RegExp(r'(\d+)\s*(niveles|alturas|baldas|estantes|pisos|plantas|tramos)').firstMatch(t);
+  int levels = lv != null ? int.parse(lv[1]!) : 0;
+  String variant = '';
+  String infill() => RegExp(r'chapa|ciega|opaca|panel').hasMatch(t)
+      ? 'chapa'
+      : (RegExp(r'malla|rejilla|electrosoldada|simple torsion').hasMatch(t) ? 'malla' : 'barrotes');
+  switch (type) {
+    case StructureType.cancela:
+      final sliding = RegExp(r'corred|deslizante|autoportante').hasMatch(t);
+      final two = RegExp(r'dos hojas|2 hojas|doble hoja').hasMatch(t) ||
+          (!sliding && !RegExp(r'una hoja|1 hoja').hasMatch(t) && length > 2.5);
+      variant = '${sliding ? (t.contains('autoportante') ? 'corredera autoportante' : 'corredera') : 'abatible'}'
+          '${sliding ? '' : (two ? ' 2 hojas' : ' 1 hoja')} · ${infill()}';
+      break;
+    case StructureType.valla:
+      variant = infill();
+      break;
+    case StructureType.cercha:
+      variant = '${RegExp(r'pilares|columnas|soportes metalicos').hasMatch(t) ? 'sobre pilares' : 'sobre muros'}'
+          '${RegExp(r'plana|cordones paralelos|viga celosia|viga en celosia').hasMatch(t) || slope < 8 ? ' · cordones paralelos' : ' · a dos aguas'}';
+      break;
+    case StructureType.poste:
+      variant = RegExp(r'cartel|letrero|publicitari|rotulo|totem|pantalla').hasMatch(t)
+          ? 'cartel'
+          : (RegExp(r'farola|baculo').hasMatch(t) ? 'farola' : 'mástil');
+      break;
+    case StructureType.torre:
+      variant = RegExp(r'deposito|aljibe|tanque|litros|silo').hasMatch(t)
+          ? 'depósito'
+          : (RegExp(r'bancada|maquina|mesa|banco').hasMatch(t) ? 'bancada' : 'plataforma');
+      if (pointLoad == 0) {
+        pointLoad = variant == 'plataforma' ? 0 : 20;
+        if (variant != 'plataforma') notes.add('Carga no indicada: se suponen 2000 kg (20 kN).');
+      }
+      break;
+    case StructureType.estanteria:
+      final pallets = RegExp(r'pale|palet|paleta|rack|carretilla').hasMatch(t);
+      variant = pallets ? 'palés' : 'baldas';
+      if (levels == 0) levels = math.max(2, (height / (pallets ? 1.5 : 0.5)).floor());
+      if (pointLoad == 0) {
+        pointLoad = pallets ? 16 : 1.5;
+        notes.add(pallets
+            ? 'Carga no indicada: 2 palés de 800 kg por nivel y vano.'
+            : 'Carga no indicada: 150 kg por balda.');
+      }
+      break;
+    case StructureType.portico:
+      if (pointLoad == 0) {
+        pointLoad = 10;
+        notes.add('Carga no indicada: polipasto de 1000 kg.');
+      }
+      break;
+    case StructureType.pasarela:
+      variant = live <= 2 ? 'mantenimiento' : (live >= 5 ? 'peatonal pública' : 'acceso');
+      break;
+    case StructureType.escalera:
+      variant = RegExp(r'exterior|intemperie|fachada').hasMatch(t) ? 'exterior' : 'interior';
+      break;
+    default:
+      break;
+  }
+  if (type == StructureType.escalera || type == StructureType.pasarela) {
+    roofing = RegExp(r'lagrimada|chapa').hasMatch(t) ? 'chapa lagrimada' : 'rejilla tramex';
+  } else if (type == StructureType.torre) {
+    roofing = variant == 'plataforma' || RegExp(r'tramex|rejilla').hasMatch(t) ? 'rejilla tramex' : '';
+  } else if (!type.hasRoof && type != StructureType.entreplanta) {
+    roofing = '';
+  }
 
   // --- Validaciones de rango ----------------------------------------------
+  if (type == StructureType.cercha && width > 30) {
+    notes.add('Luz > 30 m: cercha fuera del rango habitual de taller; requiere cálculo específico y montaje por tramos.');
+  }
   if (type == StructureType.nave && width > 30) {
     notes.add('Luz > 30 m: fuera del rango del predimensionado con pórticos de alma llena; considere celosía.');
   }
@@ -390,6 +668,9 @@ StructureSpec parsePrompt(String prompt) {
     grade: grade,
     railing: railing,
     finish: finish,
+    pointLoad: pointLoad,
+    levels: levels,
+    variant: variant,
     notes: notes,
   );
 }

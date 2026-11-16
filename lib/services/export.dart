@@ -129,7 +129,7 @@ Future<Uint8List> buildPdf(Design d,
           style: pw.TextStyle(font: bold, fontSize: 10, color: const PdfColor.fromInt(0xFFBF360C), letterSpacing: 2)),
       pw.SizedBox(height: 4),
       pw.Text(s.type.label, style: pw.TextStyle(font: bold, fontSize: 22)),
-      pw.Text('${_n(s.length, 2)} x ${_n(s.width, 2)} m · altura ${_n(s.height, 2)} m · ${s.grade.name}',
+      pw.Text('${dimsText(s)} · ${s.grade.name}',
           style: const pw.TextStyle(fontSize: 12)),
       pw.SizedBox(height: 8),
       pw.Container(
@@ -147,7 +147,7 @@ Future<Uint8List> buildPdf(Design d,
         _kpi('Acero total', '${_n(d.steelKg, 0)} kg', bold),
         _kpi('Perfiles', '${_n(d.profilesKg, 0)} kg', bold),
         _kpi('Chapas', '${_n(d.platesKg, 0)} kg', bold),
-        _kpi('Ratio', '${_n(d.steelKg / d.coveredArea, 1)} kg/m²', bold),
+        _kpi('Ratio', '${_n(d.steelRatio.$1, 1)} ${d.steelRatio.$2}', bold),
       ]),
       pw.SizedBox(height: 6),
       pw.Row(children: [
@@ -292,3 +292,12 @@ Future<String> exportPdf(Design d, {Finish finish = Finish.galvanizado, Uint8Lis
 
 Future<String> exportPng(Uint8List png, Design d, String suffix) =>
     saveAndShare(png, '${_slug(d)}_$suffix.png');
+
+/// Texto de dimensiones según la tipología (omite las que no aplican).
+String dimsText(StructureSpec s) {
+  final (l, w, h) = s.type.dimLabels;
+  return [
+    for (final (k, v) in [(l, s.length), (w, s.width), (h, s.height)])
+      if (!k.contains('no aplica') && v > 0) '${k.toLowerCase()} ${_n(v, 2)} m',
+  ].join(' · ');
+}

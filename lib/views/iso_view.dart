@@ -46,8 +46,8 @@ class IsoPainter extends CustomPainter {
       maxY = math.max(maxY, p.dy);
     }
     const margin = 46.0;
-    final sc = math.min((size.width - 2 * margin) / (maxX - minX),
-        (size.height - 2 * margin) / (maxY - minY));
+    final sc = math.min((size.width - 2 * margin) / math.max(maxX - minX, 1e-3),
+        (size.height - 2 * margin) / math.max(maxY - minY, 1e-3));
     final ox = (size.width - (maxX - minX) * sc) / 2 - minX * sc;
     final oy = (size.height - (maxY - minY) * sc) / 2 - minY * sc;
     Offset proj(Vec3 p) {
@@ -93,6 +93,27 @@ class IsoPainter extends CustomPainter {
     }
     for (var j = 0; j < d.gridY.length; j++) {
       drawAxisBubble(canvas, proj(Vec3(xNear, d.gridY[j], 0)), axisLetter(j), r: 8);
+    }
+
+    // Superficies (peldaños, suelos, chapas, cartel…) en tono suave
+    final surf = [...d.surfaces]..sort((a, b) => depth((a.a + a.c) * 0.5).compareTo(depth((b.a + b.c) * 0.5)));
+    for (final sf in surf) {
+      final pa = proj(sf.a), pb = proj(sf.b), pc = proj(sf.c), pd = proj(sf.d);
+      final path = Path()
+        ..moveTo(pa.dx, pa.dy)
+        ..lineTo(pb.dx, pb.dy)
+        ..lineTo(pc.dx, pc.dy)
+        ..lineTo(pd.dx, pd.dy)
+        ..close();
+      final c = switch (sf.kind) {
+        SurfaceKind.roof => const Color(0x2290A4AE),
+        SurfaceKind.wall => const Color(0x22A1887F),
+        SurfaceKind.wood => const Color(0x44A1887F),
+        SurfaceKind.glass => const Color(0x3380DEEA),
+        SurfaceKind.mesh || SurfaceKind.grating => const Color(0x2278909C),
+        _ => const Color(0x3378909C),
+      };
+      canvas.drawPath(path, Paint()..color = c);
     }
 
     // Barras ordenadas de atrás hacia delante
@@ -147,8 +168,9 @@ class IsoPainter extends CustomPainter {
       drawDim(canvas, pa, pb, 30 * sign, t);
     }
 
-    dim(Vec3(0, yN, 0), Vec3(x1, yN, 0), '${fmt(sp.length)} m');
-    dim(Vec3(xN, 0, 0), Vec3(xN, yMax, 0), '${fmt(yMax)} m');
+    final x0 = d.frameX.first;
+    if (x1 - x0 > 0.3) dim(Vec3(x0, yN, 0), Vec3(x1, yN, 0), '${fmt(x1 - x0)} m');
+    if (yMax > 0.3) dim(Vec3(xN, 0, 0), Vec3(xN, yMax, 0), '${fmt(yMax)} m');
     final pz0 = proj(Vec3(xN, yN, 0)), pz1 = proj(Vec3(xN, yN, sp.height));
     drawDim(canvas, pz0, pz1, pz0.dx < proj(Vec3(cxm, cym, 0)).dx ? 30 : -30, '${fmt(sp.height)} m');
   }

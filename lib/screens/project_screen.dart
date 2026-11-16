@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/rendering.dart';
@@ -6,12 +7,15 @@ import 'package:printing/printing.dart';
 
 import '../engine/designer.dart';
 import '../engine/model.dart';
+import '../engine/parser.dart';
 import '../engine/profiles.dart';
 import '../services/export.dart';
 import 'package:flutter/gestures.dart';
 import '../views/iso_view.dart';
 import '../views/plan_view.dart';
 import '../views/render_view.dart';
+import 'ai_photo_screen.dart';
+import 'models_screen.dart';
 
 String _n(double v, [int d = 1]) => v.toStringAsFixed(d).replaceAll('.', ',');
 
@@ -28,18 +32,20 @@ class _ProjectScreenState extends State<ProjectScreen> with SingleTickerProvider
   int? _highlight;
   late Finish _finish = finishFromSpec(d.spec.finish);
   bool _exporting = false;
+  Uint8List? _aiPhoto;
 
   void _recalc(StructureSpec s) {
     setState(() {
       d = designFromSpec(s, d.prompt);
       _highlight = null;
+      _aiPhoto = null;
     });
   }
 
   Future<void> _exportPdf() async {
     setState(() => _exporting = true);
     try {
-      final path = await exportPdf(d, finish: _finish);
+      final path = await exportPdf(d, finish: _finish, aiPhoto: _aiPhoto);
       _toast('PDF guardado en $path');
     } catch (e) {
       _toast('Error al exportar: $e');
@@ -49,7 +55,7 @@ class _ProjectScreenState extends State<ProjectScreen> with SingleTickerProvider
   }
 
   Future<void> _printPdf() async {
-    await Printing.layoutPdf(onLayout: (_) => buildPdf(d, finish: _finish), name: 'Herrero');
+    await Printing.layoutPdf(onLayout: (_) => buildPdf(d, finish: _finish, aiPhoto: _aiPhoto), name: 'Herrero');
   }
 
   Future<void> _exportCsv() async {
@@ -89,11 +95,16 @@ class _ProjectScreenState extends State<ProjectScreen> with SingleTickerProvider
                 if (v == 'pdf') _exportPdf();
                 if (v == 'print') _printPdf();
                 if (v == 'csv') _exportCsv();
+                if (v == 'models') {
+                  Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const ModelsScreen()));
+                }
               },
               itemBuilder: (_) => const [
                 PopupMenuItem(value: 'pdf', child: ListTile(leading: Icon(Icons.picture_as_pdf), title: Text('Proyecto completo (PDF)'))),
                 PopupMenuItem(value: 'print', child: ListTile(leading: Icon(Icons.print), title: Text('Imprimir / vista previa'))),
                 PopupMenuItem(value: 'csv', child: ListTile(leading: Icon(Icons.table_chart), title: Text('Despiece (CSV / Excel)'))),
+                PopupMenuDivider(),
+                PopupMenuItem(value: 'models', child: ListTile(leading: Icon(Icons.auto_awesome), title: Text('Modelos de IA local'))),
               ],
             ),
         ],
@@ -125,7 +136,16 @@ class _ProjectScreenState extends State<ProjectScreen> with SingleTickerProvider
           _IsoTab(d: d, highlight: _highlight, onClear: () => setState(() => _highlight = null)),
           _SheetsTab(d: d),
           _AssemblyTab(d: d),
-          _RenderTab(d: d, finish: _finish, onFinish: (f) => setState(() => _finish = f)),
+          _RenderTab(
+            d: d,
+            finish: _finish,
+            onFinish: (f) => setState(() => _finish = f),
+            hasAiPhoto: _aiPhoto != null,
+            onAiPhoto: (png) {
+              setState(() => _aiPhoto = png);
+              _toast('La foto IA se usará como portada del PDF.');
+            },
+          ),
         ],
       ),
     );
@@ -162,6 +182,8 @@ class _SpecEditorState extends State<_SpecEditor> {
   late final _snow = TextEditingController(text: _n(widget.spec.snow, 2));
   late final _wind = TextEditingController(text: _n(widget.spec.wind, 2));
   late final _live = TextEditingController(text: _n(widget.spec.liveLoad, 2));
+  late final _point = TextEditingController(text: _n(widget.spec.pointLoad, 1));
+  late final _levels = TextEditingController(text: '${widget.spec.levels}');
   late SteelGrade grade = widget.spec.grade;
 
   double? _p(TextEditingController c) => double.tryParse(c.text.replaceAll(',', '.'));
@@ -175,8 +197,65 @@ class _SpecEditorState extends State<_SpecEditor> {
         ),
       );
 
+  /// Al cambiar de tipología se toman los valores por defecto de la nueva.
+  void _changeType(StructureType t) {
+    if (t == type) return;
+    final base = parsePrompt(t.label);
+    setState(() {
+      type = t;
+      _len.text = _n(base.length, 2);
+      _wid.text = _n(base.width, 2);
+      _hei.text = _n(base.height, 2);
+      _slope.text = _n(base.slopePct, 1);
+      _bay.text = '';
+      _live.text = _n(base.liveLoad, 2);
+      _point.text = _n(base.pointLoad, 1);
+      _levels.text = '${base.levels}';
+      if (!t.hasRoof) _snow.text = '0';
+    });
+  }
+
+  static const _bayTypes = {
+    StructureType.nave,
+    StructureType.marquesina,
+    StructureType.entreplanta,
+    StructureType.cercha,
+    StructureType.pasarela,
+  };
+
   @override
   Widget build(BuildContext context) {
+    final (lLab, wLab, hLab) = type.dimLabels;
+    final showL = !lLab.contains('no aplica') && type != StructureType.escalera;
+    final showW = !wLab.contains('no aplica');
+    final liveLabel = switch (type) {
+      StructureType.barandilla => ('Carga en pasamanos', 'kN/m'),
+      StructureType.entreplanta ||
+      StructureType.escalera ||
+      StructureType.pasarela ||
+      StructureType.torre =>
+        ('Sobrecarga de uso', 'kN/m²'),
+      _ => null,
+    };
+    final pointLabel = switch (type) {
+      StructureType.torre => 'Carga del depósito / equipo',
+      StructureType.estanteria => 'Carga por nivel y vano',
+      StructureType.portico => 'Carga del polipasto',
+      _ => null,
+    };
+    final showLevels = type == StructureType.estanteria;
+    final fields = <Widget>[
+      if (showL) _field(lLab, _len, 'm'),
+      if (showW) _field(wLab, _wid, 'm'),
+      _field(hLab, _hei, 'm'),
+      if (type.hasRoof) _field('Pendiente', _slope, '%'),
+      if (_bayTypes.contains(type)) _field('Separación entre pórticos / apoyos (vacío = auto)', _bay, 'm'),
+      if (type.hasRoof) _field('Nieve sk', _snow, 'kN/m²'),
+      _field('Viento qb', _wind, 'kN/m²'),
+      if (liveLabel != null) _field(liveLabel.$1, _live, liveLabel.$2),
+      if (pointLabel != null) _field(pointLabel, _point, 'kN'),
+      if (showLevels) _field('Niveles', _levels, ''),
+    ];
     return Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, left: 16, right: 16),
       child: SingleChildScrollView(
@@ -187,28 +266,14 @@ class _SpecEditorState extends State<_SpecEditor> {
             initialValue: type,
             decoration: const InputDecoration(labelText: 'Tipo de estructura', isDense: true),
             items: [for (final t in StructureType.values) DropdownMenuItem(value: t, child: Text(t.label))],
-            onChanged: (v) => setState(() => type = v ?? type),
+            onChanged: (v) => _changeType(v ?? type),
           ),
-          Row(children: [
-            Expanded(child: _field('Largo', _len, 'm')),
-            const SizedBox(width: 8),
-            Expanded(child: _field('Ancho / luz', _wid, 'm')),
-          ]),
-          Row(children: [
-            Expanded(child: _field(type == StructureType.entreplanta ? 'Altura forjado' : 'Altura alero', _hei, 'm')),
-            const SizedBox(width: 8),
-            Expanded(child: _field('Pendiente', _slope, '%')),
-          ]),
-          Row(children: [
-            Expanded(child: _field('Separación pórticos (vacío = auto)', _bay, 'm')),
-            const SizedBox(width: 8),
-            Expanded(child: _field('Nieve sk', _snow, 'kN/m²')),
-          ]),
-          Row(children: [
-            Expanded(child: _field('Viento qb', _wind, 'kN/m²')),
-            const SizedBox(width: 8),
-            Expanded(child: _field('Sobrecarga uso', _live, 'kN/m²')),
-          ]),
+          for (var i = 0; i < fields.length; i += 2)
+            Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Expanded(child: fields[i]),
+              const SizedBox(width: 8),
+              Expanded(child: i + 1 < fields.length ? fields[i + 1] : const SizedBox()),
+            ]),
           DropdownButtonFormField<SteelGrade>(
             initialValue: grade,
             decoration: const InputDecoration(labelText: 'Acero', isDense: true),
@@ -221,21 +286,26 @@ class _SpecEditorState extends State<_SpecEditor> {
             label: const Text('Recalcular'),
             onPressed: () {
               final o = widget.spec;
+              final same = type == o.type;
+              final base = same ? o : parsePrompt(type.label);
               final s = StructureSpec(
                 type: type,
-                length: (_p(_len) ?? o.length).clamp(1, 200).toDouble(),
-                width: (_p(_wid) ?? o.width).clamp(1, 60).toDouble(),
-                height: (_p(_hei) ?? o.height).clamp(1, 30).toDouble(),
-                slopePct: (_p(_slope) ?? o.slopePct).clamp(0, 60).toDouble(),
-                bay: _p(_bay),
-                roofing: o.roofing,
-                snow: _p(_snow) ?? o.snow,
-                wind: _p(_wind) ?? o.wind,
-                liveLoad: _p(_live) ?? o.liveLoad,
-                use: o.use,
+                length: showL ? (_p(_len) ?? base.length).clamp(0.5, 300).toDouble() : base.length,
+                width: showW ? (_p(_wid) ?? base.width).clamp(0.3, 80).toDouble() : base.width,
+                height: (_p(_hei) ?? base.height).clamp(0.3, 40).toDouble(),
+                slopePct: (_p(_slope) ?? base.slopePct).clamp(0, 100).toDouble(),
+                bay: _bayTypes.contains(type) ? _p(_bay) : null,
+                roofing: base.roofing,
+                snow: type.hasRoof ? (_p(_snow) ?? base.snow) : 0,
+                wind: _p(_wind) ?? base.wind,
+                liveLoad: liveLabel != null ? (_p(_live) ?? base.liveLoad) : base.liveLoad,
+                use: base.use,
                 grade: grade,
-                railing: type == StructureType.entreplanta ? true : o.railing,
+                railing: type == StructureType.entreplanta ? true : base.railing,
                 finish: o.finish,
+                pointLoad: pointLabel != null ? (_p(_point) ?? base.pointLoad).clamp(0, 5000).toDouble() : base.pointLoad,
+                levels: showLevels ? (int.tryParse(_levels.text) ?? base.levels).clamp(1, 12) : base.levels,
+                variant: base.variant,
                 notes: [],
               );
               Navigator.pop(context, s);
@@ -287,7 +357,7 @@ class _SummaryTab extends StatelessWidget {
       const SizedBox(height: 12),
       Wrap(spacing: 10, runSpacing: 10, children: [
         _Kpi('Acero total', '${_n(d.steelKg, 0)} kg', Icons.scale),
-        _Kpi('Ratio', '${_n(d.steelKg / d.coveredArea)} kg/m²', Icons.square_foot),
+        _Kpi('Ratio', '${_n(d.steelRatio.$1)} ${d.steelRatio.$2}', Icons.square_foot),
         _Kpi('Soldadura', '${_n(d.weldMeters)} m', Icons.local_fire_department),
         _Kpi('Consumible', '${_n(d.consumableKg)} kg', Icons.inventory_2_outlined),
         _Kpi('Pintura', '${_n(d.paintM2, 0)} m²', Icons.format_paint_outlined),
@@ -301,12 +371,24 @@ class _SummaryTab extends StatelessWidget {
             Text('Interpretación', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 6),
             _kv('Tipo', s.type.label),
-            _kv('Dimensiones', '${_n(s.length, 2)} x ${_n(s.width, 2)} m, altura ${_n(s.height, 2)} m'),
-            if (s.type != StructureType.entreplanta) _kv('Pendiente', '${_n(s.slopePct)} %'),
-            _kv('Modulación', '${d.frameX.length - 1} vanos de ${_n(d.frameX[1] - d.frameX[0], 2)} m'),
-            _kv(s.type == StructureType.entreplanta ? 'Suelo' : 'Cubierta', s.roofing),
-            if (s.type != StructureType.entreplanta) _kv('Nieve / viento', '${_n(s.snow, 2)} / ${_n(s.wind, 2)} kN/m²'),
-            _kv('Uso', '${s.use} (${_n(s.liveLoad, 2)} kN/m²)'),
+            for (final (k, v) in [
+              (s.type.dimLabels.$1, s.length),
+              (s.type.dimLabels.$2, s.width),
+              (s.type.dimLabels.$3, s.height),
+            ])
+              if (!k.contains('no aplica') && v > 0) _kv(k, '${_n(v, 2)} m'),
+            if (s.variant.isNotEmpty) _kv('Variante', s.variant),
+            if (s.type.hasRoof) _kv('Pendiente', '${_n(s.slopePct)} %'),
+            if (d.frameX.length > 2)
+              _kv('Modulación', '${d.frameX.length - 1} vanos de ${_n(d.frameX[1] - d.frameX[0], 2)} m'),
+            if (s.roofing.isNotEmpty)
+              _kv(s.type.hasRoof ? 'Cubierta' : 'Suelo / peldaño / relleno', s.roofing),
+            if (s.pointLoad > 0) _kv('Carga concentrada', '${_n(s.pointLoad, 1)} kN'),
+            if (s.levels > 0) _kv('Niveles', '${s.levels}'),
+            if (s.type.hasRoof) _kv('Nieve', '${_n(s.snow, 2)} kN/m²'),
+            if (s.wind > 0) _kv('Viento qb', '${_n(s.wind, 2)} kN/m²'),
+            if (s.liveLoad > 0)
+              _kv('Uso', '${s.use}${s.use.isEmpty ? '' : ' · '}${_n(s.liveLoad, 2)} ${s.type == StructureType.barandilla ? 'kN/m' : 'kN/m²'}'),
             _kv('Acero / acabado', '${s.grade.name} · ${s.finish}'),
           ]),
         ),
@@ -734,7 +816,14 @@ class _RenderTab extends StatefulWidget {
   final Design d;
   final Finish finish;
   final ValueChanged<Finish> onFinish;
-  const _RenderTab({required this.d, required this.finish, required this.onFinish});
+  final bool hasAiPhoto;
+  final ValueChanged<Uint8List> onAiPhoto;
+  const _RenderTab(
+      {required this.d,
+      required this.finish,
+      required this.onFinish,
+      required this.hasAiPhoto,
+      required this.onAiPhoto});
   @override
   State<_RenderTab> createState() => _RenderTabState();
 }
@@ -819,6 +908,21 @@ class _RenderTabState extends State<_RenderTab> {
             onPressed: () => _saveBoundary(context, _key, widget.d, 'render'),
           ),
         ]),
+      ),
+      Padding(
+        padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
+        child: SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            icon: Icon(widget.hasAiPhoto ? Icons.check_circle : Icons.auto_awesome),
+            label: Text(widget.hasAiPhoto ? 'Foto IA lista para el PDF · generar otra' : 'Foto realista con IA local'),
+            onPressed: () async {
+              final png = await openAiPhoto(context,
+                  d: widget.d, finish: widget.finish, cam: cam, sun: sun, roof: roof);
+              if (png != null) widget.onAiPhoto(png);
+            },
+          ),
+        ),
       ),
       Padding(
         padding: const EdgeInsets.only(bottom: 8),

@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:herrero/engine/catalog.dart';
 import 'package:herrero/engine/designer.dart';
 import 'package:herrero/services/export.dart';
 import 'package:herrero/views/drawing_utils.dart';
@@ -25,11 +26,7 @@ void main() {
     await loader.load();
   });
 
-  final prompts = {
-    'nave': 'Nave a dos aguas de 30 x 15 m, 6 m de altura al alero, pórticos cada 6 m, panel sándwich, en Vitoria',
-    'marq': 'Marquesina para 2 coches de 5,5 x 5 m y 2,4 m de alto, chapa grecada, galvanizada',
-    'alt': 'Altillo de 8 x 4 m a 3 m de altura para almacén, suelo de tramex',
-  };
+  final prompts = {for (final t in typologies) t.type.name: t.example};
   for (final e in prompts.entries) {
     testWidgets('dibujos ${e.key}', (tester) async {
       await tester.runAsync(() async {

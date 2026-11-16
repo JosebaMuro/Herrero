@@ -22,7 +22,21 @@ class Vec3 {
       '(${x.toStringAsFixed(2)}, ${y.toStringAsFixed(2)}, ${z.toStringAsFixed(2)})';
 }
 
-enum StructureType { nave, marquesina, entreplanta }
+enum StructureType {
+  nave,
+  marquesina,
+  entreplanta,
+  escalera,
+  pasarela,
+  barandilla,
+  cercha,
+  torre,
+  estanteria,
+  cancela,
+  valla,
+  portico,
+  poste,
+}
 
 extension StructureTypeName on StructureType {
   String get label {
@@ -30,11 +44,102 @@ extension StructureTypeName on StructureType {
       case StructureType.nave:
         return 'Nave / pórticos a dos aguas';
       case StructureType.marquesina:
-        return 'Marquesina / pérgola / cobertizo';
+        return 'Marquesina / pérgola / porche';
       case StructureType.entreplanta:
         return 'Entreplanta / altillo / plataforma';
+      case StructureType.escalera:
+        return 'Escalera metálica';
+      case StructureType.pasarela:
+        return 'Pasarela / puente peatonal';
+      case StructureType.barandilla:
+        return 'Barandilla / antepecho';
+      case StructureType.cercha:
+        return 'Cubierta de cerchas (celosía)';
+      case StructureType.torre:
+        return 'Torre / soporte de depósito / bancada';
+      case StructureType.estanteria:
+        return 'Estantería / rack de carga';
+      case StructureType.cancela:
+        return 'Cancela / puerta / portón';
+      case StructureType.valla:
+        return 'Valla / cerramiento / reja';
+      case StructureType.portico:
+        return 'Pórtico de elevación (polipasto)';
+      case StructureType.poste:
+        return 'Poste / mástil / soporte de cartel';
     }
   }
+
+  /// Descripción en inglés (para la foto IA).
+  String get english {
+    switch (this) {
+      case StructureType.nave:
+        return 'steel portal frame industrial warehouse building with gable roof';
+      case StructureType.marquesina:
+        return 'steel carport canopy pergola structure';
+      case StructureType.entreplanta:
+        return 'steel mezzanine platform inside an industrial warehouse';
+      case StructureType.escalera:
+        return 'straight steel staircase with steel stringers, treads and handrail';
+      case StructureType.pasarela:
+        return 'steel pedestrian footbridge walkway with grating deck and handrails';
+      case StructureType.barandilla:
+        return 'steel safety railing with vertical balusters and handrail on a concrete edge';
+      case StructureType.cercha:
+        return 'steel roof trusses with lattice web members and purlins on walls';
+      case StructureType.torre:
+        return 'braced steel tower frame supporting a water tank';
+      case StructureType.estanteria:
+        return 'industrial steel pallet racking shelving in a warehouse';
+      case StructureType.cancela:
+        return 'steel driveway gate with vertical bars between steel posts';
+      case StructureType.valla:
+        return 'steel fence with posts and vertical bars along a property boundary';
+      case StructureType.portico:
+        return 'steel gantry crane frame with hoist beam in a workshop';
+      case StructureType.poste:
+        return 'steel pole structure supporting a large sign board';
+    }
+  }
+
+  /// Tiene cubierta (para render y foto).
+  bool get hasRoof =>
+      this == StructureType.nave || this == StructureType.marquesina || this == StructureType.cercha;
+
+  /// Etiqueta de las tres cotas principales (largo, ancho, altura).
+  (String, String, String) get dimLabels {
+    switch (this) {
+      case StructureType.escalera:
+        return ('Desarrollo en planta', 'Ancho de paso', 'Altura a salvar');
+      case StructureType.barandilla:
+      case StructureType.valla:
+        return ('Longitud', 'Ancho (no aplica)', 'Altura');
+      case StructureType.cercha:
+        return ('Longitud de cubierta', 'Luz de la cercha', 'Altura de apoyo');
+      case StructureType.cancela:
+        return ('Hueco libre', 'Espesor (no aplica)', 'Altura');
+      case StructureType.portico:
+        return ('Recorrido (no aplica)', 'Luz entre patas', 'Altura bajo viga');
+      case StructureType.poste:
+        return ('Ancho del cartel', 'Alto del cartel', 'Altura libre bajo cartel');
+      case StructureType.estanteria:
+        return ('Largo total', 'Fondo', 'Altura');
+      case StructureType.torre:
+        return ('Lado X', 'Lado Y', 'Altura');
+      default:
+        return ('Largo', 'Ancho / luz', 'Altura');
+    }
+  }
+}
+
+/// Tipo de superficie (para render e isométrica).
+enum SurfaceKind { roof, floor, grating, panel, mesh, glass, wall, wood }
+
+/// Superficie plana de cuatro vértices (suelos, peldaños, chapas, cartel…).
+class Surface {
+  final Vec3 a, b, c, d;
+  final SurfaceKind kind;
+  const Surface(this.a, this.b, this.c, this.d, this.kind);
 }
 
 enum MemberRole {
@@ -50,6 +155,14 @@ enum MemberRole {
   gablePost,
   haunch,
   baluster,
+  stringer,
+  tread,
+  chordTop,
+  chordBottom,
+  diagonal,
+  strut,
+  frame,
+  rail,
 }
 
 extension MemberRoleName on MemberRole {
@@ -78,7 +191,23 @@ extension MemberRoleName on MemberRole {
       case MemberRole.haunch:
         return 'Cartela de acartelamiento';
       case MemberRole.baluster:
-        return 'Barrote de barandilla';
+        return 'Barrote';
+      case MemberRole.stringer:
+        return 'Zanca';
+      case MemberRole.tread:
+        return 'Soporte de peldaño';
+      case MemberRole.chordTop:
+        return 'Cordón superior';
+      case MemberRole.chordBottom:
+        return 'Cordón inferior';
+      case MemberRole.diagonal:
+        return 'Diagonal de celosía';
+      case MemberRole.strut:
+        return 'Montante de celosía';
+      case MemberRole.frame:
+        return 'Bastidor';
+      case MemberRole.rail:
+        return 'Travesaño / larguero';
     }
   }
 
@@ -108,6 +237,22 @@ extension MemberRoleName on MemberRole {
         return 'K';
       case MemberRole.baluster:
         return 'R';
+      case MemberRole.stringer:
+        return 'Z';
+      case MemberRole.tread:
+        return 'PE';
+      case MemberRole.chordTop:
+        return 'CS';
+      case MemberRole.chordBottom:
+        return 'CI';
+      case MemberRole.diagonal:
+        return 'DG';
+      case MemberRole.strut:
+        return 'MC';
+      case MemberRole.frame:
+        return 'H';
+      case MemberRole.rail:
+        return 'T';
     }
   }
 }
@@ -260,6 +405,9 @@ class StructureSpec {
   SteelGrade grade;
   bool railing;
   String finish; // galvanizado, pintado, …
+  double pointLoad; // kN: carga concentrada / por nivel (depósito, polipasto, estantería)
+  int levels; // niveles (estanterías, torres)
+  String variant; // subtipo: corredera, abatible, chapa, malla, sobre pilares…
   List<String> notes;
 
   StructureSpec({
@@ -277,6 +425,9 @@ class StructureSpec {
     this.grade = s275,
     this.railing = false,
     this.finish = 'pintado (imprimación + esmalte)',
+    this.pointLoad = 0,
+    this.levels = 0,
+    this.variant = '',
     List<String>? notes,
   }) : notes = notes ?? [];
 }
@@ -303,6 +454,9 @@ class Design {
   final List<double> gridY; // líneas de pilares en dirección y
   final double ridgeHeight;
 
+  /// Superficies (suelos, peldaños, cartel, chapas de cerramiento…).
+  final List<Surface> surfaces;
+
   late final List<Piece> pieces;
   late final List<StockPlan> stock;
 
@@ -322,6 +476,7 @@ class Design {
     required this.frameX,
     required this.gridY,
     required this.ridgeHeight,
+    this.surfaces = const [],
   });
 
   double get steelKg =>
@@ -336,4 +491,20 @@ class Design {
   double get maxUtilization =>
       checks.fold<double>(0, (s, c) => math.max(s, c.utilization));
   double get coveredArea => spec.length * spec.width;
+
+  /// Ratio de acero adaptado a la tipología: kg/m², kg/m o kg.
+  (double, String) get steelRatio {
+    switch (spec.type) {
+      case StructureType.barandilla:
+      case StructureType.valla:
+        return (steelKg / math.max(spec.length, 0.1), 'kg/m');
+      case StructureType.cancela:
+        return (steelKg / math.max(spec.length * spec.height, 0.1), 'kg/m² de hoja');
+      case StructureType.portico:
+        return (steelKg / math.max(spec.width, 0.1), 'kg/m de luz');
+      default:
+        final a = coveredArea;
+        return a < 0.1 ? (steelKg, 'kg') : (steelKg / a, 'kg/m²');
+    }
+  }
 }

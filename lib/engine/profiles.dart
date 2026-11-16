@@ -1,7 +1,7 @@
 import 'dart:math' as math;
 
 /// Familia de perfil comercial.
-enum ProfileFamily { ipe, heb, shs, angle }
+enum ProfileFamily { ipe, heb, shs, angle, upn, rhs }
 
 /// Perfil de acero laminado o conformado con sus propiedades mecánicas.
 /// Unidades: mm para dimensiones, cm² / cm⁴ / cm³ / cm para propiedades
@@ -49,13 +49,17 @@ class SteelProfile {
         return 4 * b / 1000;
       case ProfileFamily.angle:
         return 4 * b / 1000;
+      case ProfileFamily.upn:
+        return (2 * h + 4 * b - 2 * tw) / 1000;
+      case ProfileFamily.rhs:
+        return (2 * h + 2 * b) / 1000;
     }
   }
 
   /// Espesor mínimo de las chapas que forman el perfil (para soldadura).
   double get tMin => math.min(tw, tf);
 
-  bool get isHollow => family == ProfileFamily.shs;
+  bool get isHollow => family == ProfileFamily.shs || family == ProfileFamily.rhs;
 
   @override
   String toString() => name;
@@ -112,6 +116,34 @@ SteelProfile _shs(double b, double t) {
     kgm: areaMm2 * 7850 / 1e6,
   );
 }
+
+/// Tubo rectangular (RHS), canto h vertical — propiedades geométricas.
+SteelProfile _rhs(double h, double b, double t) {
+  final hi = h - 2 * t, bi = b - 2 * t;
+  final areaMm2 = h * b - hi * bi;
+  final iy = (b * math.pow(h, 3) - bi * math.pow(hi, 3)) / 12;
+  final iz = (h * math.pow(b, 3) - hi * math.pow(bi, 3)) / 12;
+  final wpl = (b * h * h - bi * hi * hi) / 4;
+  String n(double v) => v.toStringAsFixed(v % 1 == 0 ? 0 : 1);
+  return SteelProfile(
+    name: 'RHS ${n(h)}x${n(b)}x${n(t)}',
+    family: ProfileFamily.rhs,
+    h: h,
+    b: b,
+    tw: t,
+    tf: t,
+    area: areaMm2 / 100,
+    iy: iy / 1e4,
+    wply: wpl / 1e3,
+    iz: iz / 1e4,
+    kgm: areaMm2 * 7850 / 1e6,
+  );
+}
+
+SteelProfile _upn(String n, double h, double b, double tw, double tf, double a, double iy, double wpl, double iz,
+        double kg) =>
+    SteelProfile(
+        name: n, family: ProfileFamily.upn, h: h, b: b, tw: tw, tf: tf, area: a, iy: iy, wply: wpl, iz: iz, kgm: kg);
 
 /// Angular de lados iguales (L).
 SteelProfile _l(double b, double t) {
@@ -196,6 +228,41 @@ final List<SteelProfile> shsTable = [
   _shs(200, 10),
 ];
 
+/// Catálogo UPN (prontuario).
+final List<SteelProfile> upnTable = [
+  _upn('UPN 80', 80, 45, 6, 8, 11.0, 106, 31.8, 19.4, 8.64),
+  _upn('UPN 100', 100, 50, 6, 8.5, 13.5, 206, 49.0, 29.3, 10.6),
+  _upn('UPN 120', 120, 55, 7, 9, 17.0, 364, 72.6, 43.2, 13.4),
+  _upn('UPN 140', 140, 60, 7, 10, 20.4, 605, 103, 62.7, 16.0),
+  _upn('UPN 160', 160, 65, 7.5, 10.5, 24.0, 925, 138, 85.3, 18.8),
+  _upn('UPN 180', 180, 70, 8, 11, 28.0, 1350, 179, 114, 22.0),
+  _upn('UPN 200', 200, 75, 8.5, 11.5, 32.2, 1910, 228, 148, 25.3),
+  _upn('UPN 220', 220, 80, 9, 12.5, 37.4, 2690, 292, 197, 29.4),
+  _upn('UPN 240', 240, 85, 9.5, 13, 42.3, 3600, 358, 248, 33.2),
+  _upn('UPN 260', 260, 90, 10, 14, 48.3, 4820, 442, 317, 37.9),
+  _upn('UPN 300', 300, 100, 10, 16, 58.8, 8030, 632, 495, 46.2),
+];
+
+/// Catálogo de tubo rectangular.
+final List<SteelProfile> rhsTable = [
+  _rhs(40, 20, 2),
+  _rhs(50, 30, 2),
+  _rhs(60, 40, 2),
+  _rhs(60, 40, 3),
+  _rhs(80, 40, 3),
+  _rhs(80, 60, 3),
+  _rhs(100, 50, 3),
+  _rhs(100, 50, 4),
+  _rhs(120, 60, 4),
+  _rhs(120, 80, 5),
+  _rhs(140, 80, 5),
+  _rhs(150, 100, 5),
+  _rhs(160, 80, 6),
+  _rhs(200, 100, 6),
+  _rhs(250, 150, 8),
+  _rhs(300, 200, 8),
+];
+
 /// Catálogo de angulares.
 final List<SteelProfile> angleTable = [
   _l(40, 4),
@@ -217,6 +284,10 @@ List<SteelProfile> tableFor(ProfileFamily f) {
       return shsTable;
     case ProfileFamily.angle:
       return angleTable;
+    case ProfileFamily.upn:
+      return upnTable;
+    case ProfileFamily.rhs:
+      return rhsTable;
   }
 }
 

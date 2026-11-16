@@ -58,9 +58,10 @@ extension FinishLabel on Finish {
 }
 
 Finish finishFromSpec(String f) {
-  if (f.contains('galvan')) return Finish.galvanizado;
-  if (f.contains('corten')) return Finish.corten;
   if (f.contains('negro')) return Finish.negro;
+  if (f.contains('galvan') || f.contains('inox')) return Finish.galvanizado;
+  if (f.contains('corten') || f.contains('oxiron')) return Finish.corten;
+  if (f.contains('rojo')) return Finish.pintadoRojo;
   return Finish.pintadoGris;
 }
 
@@ -82,7 +83,9 @@ class SceneMesh {
   final List<_Tri> tris = [];
   final Vec3 center;
   final double radius;
-  SceneMesh._(this.center, this.radius);
+  /// Estructura esbelta (más alta que ancha): la cámara se aleja un poco.
+  final bool tall;
+  SceneMesh._(this.center, this.radius, this.tall);
 
   factory SceneMesh.build(Design d, Finish finish,
       {bool roof = true, bool detailed = true}) {
@@ -95,7 +98,8 @@ class SceneMesh {
     }
     final center = (minV + maxV) * 0.5;
     final radius = (maxV - minV).length / 2;
-    final s = SceneMesh._(center, radius);
+    final ext = maxV - minV;
+    final s = SceneMesh._(center, radius, ext.z > math.max(ext.x, ext.y) * 0.9);
     final alb = finish.albedo;
     final sp = finish.specular;
     for (final m in d.members) {
@@ -103,7 +107,10 @@ class SceneMesh {
     }
     // Zapatas y placas
     final fs = d.footingSize > 0 ? d.footingSize : 0.0;
-    final col = d.members.firstWhere((m) => m.role == MemberRole.column).profile;
+    final col = d.members
+        .firstWhere((m) => m.role == MemberRole.column || m.role == MemberRole.post,
+            orElse: () => d.members.first)
+        .profile;
     final pw = d.plates.isNotEmpty ? d.plates.first.w / 1000 : 0.3;
     final ph = d.plates.isNotEmpty ? d.plates.first.h / 1000 : 0.3;
     for (final f in d.footings) {
@@ -116,6 +123,11 @@ class SceneMesh {
           const Vec3(0, 0, 1), horiz ? pw : pw, horiz ? ph : pw, 0.02, alb, sp);
     }
     if (roof) s._roof(d);
+    for (final sf in d.surfaces) {
+      if (!roof && sf.kind == SurfaceKind.roof) continue;
+      final (c, sp2, a) = _surfaceLook(sf.kind, d.spec.roofing, alb);
+      s._quad(sf.a, sf.b, sf.c, sf.d, c, sp2, alpha: a);
+    }
     // Suelo de entreplanta
     if (d.spec.type == StructureType.entreplanta) {
       final x1 = d.frameX.last, y1 = d.gridY.last, z = d.spec.height;
@@ -165,7 +177,18 @@ class SceneMesh {
         _box(mid, ax, f, w, len, tw, h - 2 * tf, alb, sp);
         break;
       case ProfileFamily.shs:
+      case ProfileFamily.rhs:
         _box(mid, ax, f, w, len, b, h, alb, sp);
+        break;
+      case ProfileFamily.upn:
+        if (!detailed) {
+          _box(mid, ax, f, w, len, b, h, alb, sp);
+          break;
+        }
+        // alma en un lado, alas hacia el otro
+        _box(mid - f * (b / 2 - tw / 2), ax, f, w, len, tw, h, alb, sp);
+        _box(mid + w * (h / 2 - tf / 2), ax, f, w, len, b, tf, alb, sp);
+        _box(mid - w * (h / 2 - tf / 2), ax, f, w, len, b, tf, alb, sp);
         break;
       case ProfileFamily.angle:
         _box(mid + f * (b / 2 - tw / 2), ax, f, w, len, tw, b, alb, sp);
@@ -233,9 +256,36 @@ class SceneMesh {
     }
   }
 
+  static (Vec3, double, double) _surfaceLook(SurfaceKind k, String roofing, Vec3 steel) {
+    switch (k) {
+      case SurfaceKind.roof:
+        if (roofing.contains('policarbonato')) return (const Vec3(0.75, 0.82, 0.86), 0.4, 0.45);
+        if (roofing.contains('teja')) return (const Vec3(0.55, 0.25, 0.17), 0.1, 1);
+        if (roofing.contains('fotovolta')) return (const Vec3(0.08, 0.12, 0.25), 0.6, 1);
+        return (const Vec3(0.78, 0.79, 0.80), 0.3, 1);
+      case SurfaceKind.floor:
+        return (const Vec3(0.45, 0.43, 0.40), 0.2, 0.95);
+      case SurfaceKind.grating:
+        return (const Vec3(0.58, 0.59, 0.60), 0.3, 0.55);
+      case SurfaceKind.panel:
+        return (steel * 0.92, 0.3, 1);
+      case SurfaceKind.mesh:
+        return (steel * 0.85, 0.2, 0.35);
+      case SurfaceKind.glass:
+        return (const Vec3(0.70, 0.85, 0.88), 0.8, 0.30);
+      case SurfaceKind.wall:
+        return (const Vec3(0.74, 0.68, 0.60), 0.05, 1);
+      case SurfaceKind.wood:
+        return (const Vec3(0.62, 0.46, 0.30), 0.05, 1);
+    }
+  }
+
   void _roof(Design d) {
     final r = d.spec.roofing;
-    if (r.contains('sin cubierta') || d.spec.type == StructureType.entreplanta) return;
+    if (r.contains('sin cubierta') ||
+        (d.spec.type != StructureType.nave && d.spec.type != StructureType.marquesina)) {
+      return;
+    }
     final x1 = d.frameX.last;
     // cubrir la mitad de la longitud para dejar ver la estructura
     final xr = d.frameX.length > 2 ? d.frameX[(d.frameX.length / 2).floor()] : x1;
@@ -294,11 +344,11 @@ class RenderPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final r = mesh.radius;
-    final target = mesh.center + Vec3(0, 0, -r * 0.08);
+    final target = mesh.center + Vec3(0, 0, mesh.tall ? 0 : -r * 0.08);
     final eye = target +
         Vec3(math.cos(cam.pitch) * math.cos(cam.yaw), math.cos(cam.pitch) * math.sin(cam.yaw),
                 math.sin(cam.pitch)) *
-            (r * cam.distance);
+            (r * cam.distance * (mesh.tall ? 1.2 : 1.0));
     final fwd = (target - eye).normalized;
     var right = fwd.cross(const Vec3(0, 0, 1)).normalized;
     final up = right.cross(fwd).normalized;

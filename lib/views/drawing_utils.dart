@@ -30,6 +30,22 @@ Color roleColor(MemberRole r) {
     case MemberRole.handrail:
     case MemberRole.baluster:
       return const Color(0xFF546E7A);
+    case MemberRole.stringer:
+      return const Color(0xFF1565C0);
+    case MemberRole.tread:
+      return const Color(0xFF2E7D32);
+    case MemberRole.chordTop:
+      return const Color(0xFFC62828);
+    case MemberRole.chordBottom:
+      return const Color(0xFF6A1B9A);
+    case MemberRole.diagonal:
+      return const Color(0xFFEF6C00);
+    case MemberRole.strut:
+      return const Color(0xFF00838F);
+    case MemberRole.frame:
+      return const Color(0xFF4E342E);
+    case MemberRole.rail:
+      return const Color(0xFF2E7D32);
   }
 }
 

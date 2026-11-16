@@ -5,6 +5,8 @@ import 'model.dart';
 import 'parser.dart';
 import 'profiles.dart';
 
+part 'designer_extra.dart';
+
 // ---------------------------------------------------------------------------
 // Utilidades de cálculo (EN 1993-1-1 / CTE DB-SE-A)
 // ---------------------------------------------------------------------------
@@ -28,9 +30,12 @@ double _alphaStrong(SteelProfile p) {
     case ProfileFamily.heb:
       return 0.34; // curva b
     case ProfileFamily.shs:
+    case ProfileFamily.rhs:
       return 0.49; // conformado en frío: curva c
     case ProfileFamily.angle:
       return 0.34;
+    case ProfileFamily.upn:
+      return 0.49; // curva c
   }
 }
 
@@ -41,9 +46,12 @@ double _alphaWeak(SteelProfile p) {
     case ProfileFamily.heb:
       return 0.49; // curva c
     case ProfileFamily.shs:
+    case ProfileFamily.rhs:
       return 0.49;
     case ProfileFamily.angle:
       return 0.34;
+    case ProfileFamily.upn:
+      return 0.49;
   }
 }
 
@@ -137,6 +145,36 @@ Design designFromSpec(StructureSpec spec, String prompt) {
       break;
     case StructureType.entreplanta:
       d = _designEntreplanta(spec, prompt);
+      break;
+    case StructureType.escalera:
+      d = _designEscalera(spec, prompt);
+      break;
+    case StructureType.pasarela:
+      d = _designPasarela(spec, prompt);
+      break;
+    case StructureType.barandilla:
+      d = _designBarandilla(spec, prompt);
+      break;
+    case StructureType.cercha:
+      d = _designCercha(spec, prompt);
+      break;
+    case StructureType.torre:
+      d = _designTorre(spec, prompt);
+      break;
+    case StructureType.estanteria:
+      d = _designEstanteria(spec, prompt);
+      break;
+    case StructureType.cancela:
+      d = _designCancela(spec, prompt);
+      break;
+    case StructureType.valla:
+      d = _designValla(spec, prompt);
+      break;
+    case StructureType.portico:
+      d = _designPortico(spec, prompt);
+      break;
+    case StructureType.poste:
+      d = _designPoste(spec, prompt);
       break;
   }
   buildBom(d);
