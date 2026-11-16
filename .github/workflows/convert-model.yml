@@ -10,6 +10,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: convert-model
+  cancel-in-progress: false
+
 jobs:
   convert:
     runs-on: ubuntu-latest
@@ -47,6 +51,7 @@ jobs:
           make_latest: false
           body: |
             Modelos para la "Foto IA" local de Herrero (descarga desde la app → Ajustes → Modelos IA).
-            Basados en stabilityai/sd-turbo (licencia Stability AI Non-Commercial Research Community).
+            Basados en stabilityai/sd-turbo (licencia de Stability AI; revisa sus condiciones antes de un uso comercial)
+            y en el autoencoder diminuto madebyollin/taesd (licencia MIT).
             Convertidos a ONNX y cuantizados a int8 por `scripts/convert_sd_turbo.py`.
           files: out/*
