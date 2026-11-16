@@ -85,13 +85,14 @@ class IsoPainter extends CustomPainter {
       path.close();
       canvas.drawPath(path, footPaint);
     }
+    final cxm = (lo.x + hi.x) / 2, cym = (lo.y + hi.y) / 2;
+    final yNear = depth(Vec3(cxm, lo.y, 0)) > depth(Vec3(cxm, hi.y, 0)) ? lo.y - 1.4 : hi.y + 1.4;
+    final xNear = depth(Vec3(lo.x, cym, 0)) > depth(Vec3(hi.x, cym, 0)) ? lo.x - 1.4 : hi.x + 1.4;
     for (var i = 0; i < d.frameX.length; i++) {
-      drawAxisBubble(canvas, proj(Vec3(d.frameX[i], lo.y - 1.4, 0)), '${i + 1}',
-          r: 8);
+      drawAxisBubble(canvas, proj(Vec3(d.frameX[i], yNear, 0)), '${i + 1}', r: 8);
     }
     for (var j = 0; j < d.gridY.length; j++) {
-      drawAxisBubble(canvas, proj(Vec3(lo.x - 1.4, d.gridY[j], 0)), axisLetter(j),
-          r: 8);
+      drawAxisBubble(canvas, proj(Vec3(xNear, d.gridY[j], 0)), axisLetter(j), r: 8);
     }
 
     // Barras ordenadas de atrás hacia delante
@@ -129,21 +130,27 @@ class IsoPainter extends CustomPainter {
       }
     }
 
-    // Cotas generales
-    final s = d.spec;
+    // Cotas generales (en los lados más cercanos al observador)
+    final sp = d.spec;
     final x1 = d.frameX.last;
     final yMax = d.gridY.last;
-    drawDim(canvas, proj(Vec3(0, 0, 0)), proj(Vec3(x1, 0, 0)), 26,
-        '${fmt(s.length)} m');
-    drawDim(canvas, proj(Vec3(x1, 0, 0)), proj(Vec3(x1, yMax, 0)), 26,
-        '${fmt(yMax)} m');
-    final topZ = d.spec.type == StructureType.entreplanta ? s.height : s.height;
-    drawDim(canvas, proj(Vec3(0, 0, 0)), proj(Vec3(0, 0, topZ)), -26,
-        '${fmt(topZ)} m');
-    if (d.ridgeHeight > topZ + 0.05) {
-      drawDim(canvas, proj(Vec3(0, yMax / 2, 0)), proj(Vec3(0, yMax / 2, d.ridgeHeight)),
-          -20, '${fmt(d.ridgeHeight)} m');
+    final yN = yNear < cym ? 0.0 : yMax;
+    final xN = xNear < cxm ? 0.0 : x1;
+    void dim(Vec3 a, Vec3 b, String t) {
+      final pa = proj(a), pb = proj(b);
+      // desplazar hacia fuera del centro de la figura
+      final mid = (pa + pb) / 2;
+      final ctr = proj(Vec3(cxm, cym, 0));
+      final u = pb - pa;
+      final n = Offset(-u.dy, u.dx);
+      final sign = ((mid - ctr).dx * n.dx + (mid - ctr).dy * n.dy) >= 0 ? 1.0 : -1.0;
+      drawDim(canvas, pa, pb, 30 * sign, t);
     }
+
+    dim(Vec3(0, yN, 0), Vec3(x1, yN, 0), '${fmt(sp.length)} m');
+    dim(Vec3(xN, 0, 0), Vec3(xN, yMax, 0), '${fmt(yMax)} m');
+    final pz0 = proj(Vec3(xN, yN, 0)), pz1 = proj(Vec3(xN, yN, sp.height));
+    drawDim(canvas, pz0, pz1, pz0.dx < proj(Vec3(cxm, cym, 0)).dx ? 30 : -30, '${fmt(sp.height)} m');
   }
 
   @override

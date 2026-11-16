@@ -3,7 +3,7 @@ import 'dart:math' as math;
 import 'model.dart';
 import 'profiles.dart';
 
-/// Normaliza el texto: minúsculas, sin tildes, coma decimal → punto.
+/// Normaliza el texto: minúsculas, sin tildes, coma decimal -> punto.
 String normalize(String s) {
   const from = 'áàäâéèëêíìïîóòöôúùüûñç×';
   const to = 'aaaaeeeeiiiioooouuuuncx';
@@ -166,7 +166,7 @@ StructureSpec parsePrompt(String prompt) {
     }
   }
 
-  // Superficie "de 60 m2" sin dimensiones → cuadrado aproximado
+  // Superficie "de 60 m2" sin dimensiones -> cuadrado aproximado
   final area = RegExp(r'(\d+(?:\.\d+)?)\s*(?:m2|m²|metros cuadrados)').firstMatch(t);
   if (area != null && length == null && width == null) {
     final s = math.sqrt(double.parse(area[1]!));

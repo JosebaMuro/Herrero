@@ -244,10 +244,10 @@ Design _designNave(StructureSpec s, String prompt) {
     return [
       Check('Pilar ${p.name}', 'Flexocompresión en plano  N/Nb,y + M/Mc ≤ 1',
           ned / nbY + med / mrd,
-          'NEd = ${_f(ned)} kN, MEd = ${_f(med)} kN·m, Lk = 2·H = ${_f(2 * H)} m, λ̄y = ${_f(lbY, 2)}, Nb,y,Rd = ${_f(nbY)} kN'),
+          'NEd = ${_f(ned)} kN, MEd = ${_f(med)} kN·m, Lk = 2·H = ${_f(2 * H)} m, λrely = ${_f(lbY, 2)}, Nb,y,Rd = ${_f(nbY)} kN'),
       Check('Pilar ${p.name}', 'Pandeo fuera del plano  N/Nb,z + 0,6·M/Mc ≤ 1',
           ned / nbZ + 0.6 * med / mrd,
-          'Lk = H = ${_f(H)} m (arriostrado en cabeza), λ̄z = ${_f(lbZ, 2)}, Nb,z,Rd = ${_f(nbZ)} kN'),
+          'Lk = H = ${_f(H)} m (arriostrado en cabeza), λrelz = ${_f(lbZ, 2)}, Nb,z,Rd = ${_f(nbZ)} kN'),
     ];
   }, checks);
   final nColumnD = qdRafter * L / 2 + 1.35 * column.kgm * 9.81 / 1000 * H;
@@ -350,14 +350,14 @@ Design _designNave(StructureSpec s, String prompt) {
         a: Vec3(x, column.h / 2000, H) + dropL,
         b: Vec3(x, column.h / 2000, H) + rDirL * lh + dropL * 0.2,
         webDir: webL,
-        cut: 'Corte diagonal (1 barra → 2 cartelas)'));
+        cut: 'Corte diagonal (1 barra -> 2 cartelas)'));
     members.add(Member(
         role: MemberRole.haunch,
         profile: rafter,
         a: Vec3(x, L - column.h / 2000, H) + dropR,
         b: Vec3(x, L - column.h / 2000, H) + rDirR * lh + dropR * 0.2,
         webDir: webR,
-        cut: 'Corte diagonal (1 barra → 2 cartelas)'));
+        cut: 'Corte diagonal (1 barra -> 2 cartelas)'));
   }
 
   // Correas
@@ -634,7 +634,7 @@ Design _designNave(StructureSpec s, String prompt) {
     'Izado de los pilares del pórtico 1 y pórtico 2; aplomado provisional con tensores/puntales.',
     'Ensamblaje en suelo de cada pareja de dinteles (unión de cumbrera PT2, tornillos M16) y montaje de cartelas.',
     'Izado del dintel completo con grúa (eslingado en 2 puntos, balancín si L > 15 m) y atornillado a pilares (PT1).',
-    'Montaje de vigas de atado y cruces de San Andrés del vano 1 → primer módulo estable. Comprobar aplomado y diagonales.',
+    'Montaje de vigas de atado y cruces de San Andrés del vano 1 -> primer módulo estable. Comprobar aplomado y diagonales.',
     'Montaje sucesivo del resto de pórticos y vigas de atado; arriostramiento del último vano.',
     if (gablePost != null) 'Montaje de pilarillos de hastial (PH) y su unión al dintel.',
     'Montaje de correas sobre ejiones (tornillos M12), de alero a cumbrera.',
@@ -761,7 +761,7 @@ Design _designMarquesina(StructureSpec s, String prompt) {
     return [
       Check('Pilar ${p.name}', 'Flexocompresión  N/Nb + M/Mc ≤ 1 (ménsula)',
           ned / nb + med / mrd,
-          'NEd = ${_f(ned)} kN, MEd = ${_f(med)} kN·m, Lk = 2·h = ${_f(2 * colH)} m, λ̄ = ${_f(lb, 2)}'),
+          'NEd = ${_f(ned)} kN, MEd = ${_f(med)} kN·m, Lk = 2·h = ${_f(2 * colH)} m, λrel = ${_f(lb, 2)}'),
       Check('Pilar ${p.name}', 'Desplome ELS ≤ h/150', dx / (colH * 1000 / 150),
           'δ = ${_f(dx)} mm'),
     ];
@@ -1040,7 +1040,7 @@ Design _designEntreplanta(StructureSpec s, String prompt) {
     return [
       Check('Pilar ${p.name}', 'Pandeo + excentricidad  N/Nb + M/Mc ≤ 1',
           n / nbRd + med / _mRd(p, fy),
-          'NEd = ${_f(n)} kN, e = ${_f(ecc * 1000, 0)} mm, Lk = ${_f(colH, 2)} m, λ̄ = ${_f(lb, 2)}, Nb,Rd = ${_f(nbRd)} kN'),
+          'NEd = ${_f(n)} kN, e = ${_f(ecc * 1000, 0)} mm, Lk = ${_f(colH, 2)} m, λrel = ${_f(lb, 2)}, Nb,Rd = ${_f(nbRd)} kN'),
     ];
   }, checks);
 

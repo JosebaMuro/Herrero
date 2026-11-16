@@ -167,9 +167,9 @@ class SheetPainter extends CustomPainter {
       drawDim(c, f(d.gridY[j], 0), f(d.gridY[j + 1], 0), 26, '${fmt(d.gridY[j + 1] - d.gridY[j])}');
     }
     if (d.gridY.length > 2) drawDim(c, f(0, 0), f(yMax, 0), 44, '${fmt(yMax)}');
-    drawDim(c, f(0, 0), f(0, d.spec.height), 28, '${fmt(d.spec.height)}');
+    drawDim(c, f(0, 0), f(0, d.spec.height), -28, fmt(d.spec.height));
     if (d.ridgeHeight > d.spec.height + 0.05) {
-      drawDim(c, f(yMax, 0), f(yMax, d.ridgeHeight), -28, '${fmt(d.ridgeHeight)}');
+      drawDim(c, f(yMax, 0), f(yMax, d.ridgeHeight), 28, fmt(d.ridgeHeight));
       final mid = f(yMax * 0.25, d.spec.height + (d.ridgeHeight - d.spec.height) * 0.5);
       drawText(c, 'Pendiente ${fmt(d.spec.slopePct, 1)} %', mid + const Offset(0, -22), size: 9);
     }
@@ -197,7 +197,7 @@ class SheetPainter extends CustomPainter {
       drawDim(c, f(d.frameX[i], 0), f(d.frameX[i + 1], 0), 26, fmt(d.frameX[i + 1] - d.frameX[i]));
     }
     drawDim(c, f(0, 0), f(xMax, 0), 44, fmt(xMax));
-    drawDim(c, f(0, 0), f(0, d.spec.height), 28, fmt(d.spec.height));
+    drawDim(c, f(0, 0), f(0, d.spec.height), -28, fmt(d.spec.height));
     _legend(c, area, sc);
   }
 
@@ -239,7 +239,7 @@ class SheetPainter extends CustomPainter {
       drawDim(c, f(d.frameX[i], yMax), f(d.frameX[i + 1], yMax), -22, fmt(d.frameX[i + 1] - d.frameX[i]));
     }
     drawDim(c, f(0, yMax), f(xMax, yMax), -40, fmt(xMax));
-    drawDim(c, f(xMax, 0), f(xMax, yMax), -24, fmt(yMax));
+    drawDim(c, f(xMax, 0), f(xMax, yMax), 24, fmt(yMax));
     _legend(c, area, sc);
   }
 
@@ -310,7 +310,7 @@ class SheetPainter extends CustomPainter {
         ..close();
       c.drawPath(tri, Paint()..color = _ink);
       drawText(c, 'a${weld.throat.toStringAsFixed(0)}', at + const Offset(52, -50), size: 9, bold: true);
-      drawText(c, '⌀ perimetral', at + const Offset(86, -50), size: 8);
+      drawText(c, 'perimetral', at + const Offset(86, -50), size: 8);
     }
     drawText(c, 'ALZADO', Offset(right.center.dx, right.top + 4), size: 10, bold: true);
     drawText(c, '${pa.description}  ${pa.w.toStringAsFixed(0)}x${pa.h.toStringAsFixed(0)}x${pa.t.toStringAsFixed(0)} mm · ${pa.notes}',
