@@ -8,7 +8,7 @@ import '../engine/model.dart';
 import '../engine/profiles.dart';
 
 /// Acabado del acero en el render.
-enum Finish { galvanizado, pintadoGris, pintadoRojo, corten, negro }
+enum Finish { galvanizado, pintadoGris, pintadoRojo, corten, negro, blanco, inox, aluminio }
 
 extension FinishLabel on Finish {
   String get label {
@@ -23,6 +23,12 @@ extension FinishLabel on Finish {
         return 'Corten';
       case Finish.negro:
         return 'Lacado negro';
+      case Finish.blanco:
+        return 'Lacado blanco';
+      case Finish.inox:
+        return 'Inox satinado';
+      case Finish.aluminio:
+        return 'Aluminio anodizado';
     }
   }
 
@@ -38,6 +44,12 @@ extension FinishLabel on Finish {
         return const Vec3(0.48, 0.24, 0.12);
       case Finish.negro:
         return const Vec3(0.07, 0.07, 0.08);
+      case Finish.blanco:
+        return const Vec3(0.86, 0.86, 0.84);
+      case Finish.inox:
+        return const Vec3(0.74, 0.75, 0.76);
+      case Finish.aluminio:
+        return const Vec3(0.80, 0.81, 0.83);
     }
   }
 
@@ -53,13 +65,23 @@ extension FinishLabel on Finish {
         return 0.05;
       case Finish.negro:
         return 0.45;
+      case Finish.blanco:
+        return 0.35;
+      case Finish.inox:
+        return 0.8;
+      case Finish.aluminio:
+        return 0.6;
     }
   }
 }
 
 Finish finishFromSpec(String f) {
+  f = f.toLowerCase();
   if (f.contains('negro')) return Finish.negro;
-  if (f.contains('galvan') || f.contains('inox')) return Finish.galvanizado;
+  if (f.contains('blanco')) return Finish.blanco;
+  if (f.contains('inox')) return Finish.inox;
+  if (f.contains('alumin') || f.contains('anodiz')) return Finish.aluminio;
+  if (f.contains('galvan')) return Finish.galvanizado;
   if (f.contains('corten') || f.contains('oxiron')) return Finish.corten;
   if (f.contains('rojo')) return Finish.pintadoRojo;
   return Finish.pintadoGris;
@@ -178,6 +200,7 @@ class SceneMesh {
         break;
       case ProfileFamily.shs:
       case ProfileFamily.rhs:
+      case ProfileFamily.round:
         _box(mid, ax, f, w, len, b, h, alb, sp);
         break;
       case ProfileFamily.upn:

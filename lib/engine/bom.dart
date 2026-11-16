@@ -43,6 +43,7 @@ void buildBom(Design d) {
       lengthMm: lenMm,
       qty: ms.length,
       cut: ms.first.cut,
+      density: d.spec.grade.density,
     ));
   }
   d.pieces = pieces;

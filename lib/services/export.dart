@@ -10,6 +10,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:share_plus/share_plus.dart';
 
 import '../engine/bom.dart';
+import '../engine/materials.dart';
 import '../engine/model.dart';
 import '../views/drawing_utils.dart';
 import '../views/iso_view.dart';
@@ -144,7 +145,7 @@ Future<Uint8List> buildPdf(Design d,
           child: pw.Image(pw.MemoryImage(aiPhoto ?? render), height: 330, fit: pw.BoxFit.cover)),
       pw.SizedBox(height: 12),
       pw.Row(children: [
-        _kpi('Acero total', '${_n(d.steelKg, 0)} kg', bold),
+        _kpi(metalLabel(s.grade), '${_n(d.steelKg, 0)} kg', bold),
         _kpi('Perfiles', '${_n(d.profilesKg, 0)} kg', bold),
         _kpi('Chapas', '${_n(d.platesKg, 0)} kg', bold),
         _kpi('Ratio', '${_n(d.steelRatio.$1, 1)} ${d.steelRatio.$2}', bold),
@@ -170,6 +171,17 @@ Future<Uint8List> buildPdf(Design d,
     margin: const pw.EdgeInsets.all(28),
     footer: footer,
     build: (ctx) => [
+      h1('Materiales'),
+      pw.Table(
+        columnWidths: const {0: pw.FixedColumnWidth(110), 1: pw.FlexColumnWidth()},
+        children: [
+          for (final (k, v) in materialRows(d))
+            pw.TableRow(children: [
+              pw.Padding(padding: const pw.EdgeInsets.symmetric(vertical: 1.5), child: pw.Text(k, style: pw.TextStyle(font: bold, fontSize: 8.5))),
+              pw.Padding(padding: const pw.EdgeInsets.symmetric(vertical: 1.5), child: pw.Text(v, style: const pw.TextStyle(fontSize: 8.5))),
+            ]),
+        ],
+      ),
       h1('1. Memoria de cálculo – hipótesis'),
       ...d.hypotheses.map((h) => pw.Bullet(text: h, style: const pw.TextStyle(fontSize: 8.5))),
       h1('2. Comprobaciones (ELU / ELS)'),

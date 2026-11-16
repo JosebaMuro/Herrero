@@ -44,6 +44,12 @@ String _finish(Finish f) {
       return 'corten weathering steel with orange rust patina';
     case Finish.negro:
       return 'matte black powder coated steel';
+    case Finish.blanco:
+      return 'white powder coated steel';
+    case Finish.inox:
+      return 'brushed stainless steel with satin metallic finish';
+    case Finish.aluminio:
+      return 'anodized aluminium profiles with silver satin finish';
   }
 }
 

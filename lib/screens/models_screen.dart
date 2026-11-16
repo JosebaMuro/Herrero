@@ -38,7 +38,7 @@ class _ModelsScreenState extends State<ModelsScreen> {
     try {
       await mgr.fetchManifest();
     } catch (e) {
-      _catalogError = mgr.manifest == null
+      _catalogError = mgr.manifests.isEmpty
           ? 'Sin conexión con el catálogo de modelos. Conéctate a internet para descargar (después funciona sin conexión).'
           : null;
     }
@@ -150,8 +150,8 @@ class _ModelsScreenState extends State<ModelsScreen> {
               const SizedBox(height: 12),
               Text(
                 'Los modelos se ejecutan en tu dispositivo: las imágenes no salen de él. '
-                'Basados en SD-Turbo (Stability AI; revisa su licencia antes de un uso comercial) y TAESD (MIT), '
-                'convertidos a ONNX int8 para funcionar en CPU, NPU o GPU.',
+                'Basados en SD-Turbo (Stability AI; revisa su licencia antes de un uso comercial), TAESD (MIT) '
+                'y PP-OCRv4 de PaddleOCR (Apache-2.0), en formato ONNX para funcionar en CPU, NPU o GPU.',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ],
@@ -215,6 +215,8 @@ class _StepsCard extends StatelessWidget {
       (Icons.text_fields, 'Interpretar la descripción', 'Motor propio por reglas · sin modelo'),
       (Icons.calculate_outlined, 'Cálculo, despiece y soldaduras', 'Motor propio CTE / EC3 · sin modelo'),
       (Icons.architecture, 'Isométrica, planos y render 3D', 'Dibujo propio · sin modelo'),
+      (Icons.document_scanner_outlined, 'Importar plano (PDF de CAD)', 'Lectura directa del PDF · sin modelo'),
+      (Icons.image_search, 'Importar plano (foto o escaneo)', 'Lector OCR local · requiere descargar 16 MB'),
       (Icons.auto_awesome, 'Foto realista', 'IA local · requiere descargar un modelo'),
     ];
     return Card(
@@ -254,7 +256,8 @@ class _VariantCard extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
     final size = mgr.sizeOf(m) > 0 ? fmtBytes(mgr.sizeOf(m)) : '≈ ${fmtBytes(m.approxBytes)}';
     final suit = dev.suitability(m);
-    final active = mgr.activeId == m.id && st.state == DlState.installed;
+    final single = m.task != ModelTask.photo;
+    final active = (single || mgr.activeId == m.id) && st.state == DlState.installed;
     return Card(
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
@@ -297,7 +300,7 @@ class _VariantCard extends StatelessWidget {
                   contentPadding: EdgeInsets.zero,
                   title: Text(p.$1),
                   subtitle: Text(p.$2),
-                  trailing: Text(fmtBytes((mgr.manifest?['files']?[p.$2]?['size'] as int?) ?? 0)),
+                  trailing: Text(fmtBytes(mgr.fileSize(m, p.$2))),
                 ),
             ],
           ),

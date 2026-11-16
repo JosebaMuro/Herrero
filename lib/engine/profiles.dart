@@ -1,7 +1,7 @@
 import 'dart:math' as math;
 
 /// Familia de perfil comercial.
-enum ProfileFamily { ipe, heb, shs, angle, upn, rhs }
+enum ProfileFamily { ipe, heb, shs, angle, upn, rhs, round }
 
 /// Perfil de acero laminado o conformado con sus propiedades mecánicas.
 /// Unidades: mm para dimensiones, cm² / cm⁴ / cm³ / cm para propiedades
@@ -53,6 +53,8 @@ class SteelProfile {
         return (2 * h + 4 * b - 2 * tw) / 1000;
       case ProfileFamily.rhs:
         return (2 * h + 2 * b) / 1000;
+      case ProfileFamily.round:
+        return math.pi * h / 1000;
     }
   }
 
@@ -288,21 +290,154 @@ List<SteelProfile> tableFor(ProfileFamily f) {
       return upnTable;
     case ProfileFamily.rhs:
       return rhsTable;
+    case ProfileFamily.round:
+      return roundTable;
   }
 }
 
-/// Acero estructural.
-class SteelGrade {
-  final String name;
-  final double fy; // N/mm²
-  final double fu; // N/mm²
-  final double betaW; // factor de correlación soldadura (EN 1993-1-8 tabla 4.1)
-  const SteelGrade(this.name, this.fy, this.fu, this.betaW);
+/// Redondo macizo (tirantes).
+SteelProfile _rd(double d) {
+  final a = math.pi * d * d / 4;
+  final i = math.pi * math.pow(d, 4) / 64;
+  return SteelProfile(
+    name: 'R${d.toStringAsFixed(0)}',
+    family: ProfileFamily.round,
+    h: d,
+    b: d,
+    tw: d / 2,
+    tf: d / 2,
+    area: a / 100,
+    iy: i / 1e4,
+    wply: math.pow(d, 3) / 6 / 1e3,
+    iz: i / 1e4,
+    kgm: a * 7850 / 1e6,
+  );
 }
 
-const s235 = SteelGrade('S235JR', 235, 360, 0.80);
-const s275 = SteelGrade('S275JR', 275, 430, 0.85);
-const s355 = SteelGrade('S355J2', 355, 490, 0.90);
+/// Redondos para tirantes (barra roscada en extremos).
+final List<SteelProfile> roundTable = [for (final d in [12.0, 14, 16, 20, 24, 27, 30]) _rd(d.toDouble())];
+
+/// Todos los perfiles del catálogo.
+List<SteelProfile> get allProfiles => [for (final f in ProfileFamily.values) ...tableFor(f)];
+
+/// Busca un perfil por su designación ("HEB 220", "SHS 100x4", "IPE300").
+SteelProfile? profileByName(String n) {
+  String k(String s) => s.toUpperCase().replaceAll(RegExp(r'[\s.]'), '').replaceAll(',', '.');
+  final key = k(n);
+  for (final p in allProfiles) {
+    if (k(p.name) == key) return p;
+  }
+  return null;
+}
+
+/// Tipo de material estructural.
+enum MaterialKind { carbon, weathering, stainless, aluminium }
+
+/// Material estructural (aceros, inoxidables y aluminio).
+class SteelGrade {
+  final String name;
+  final double fy; // N/mm² (para aluminio: f0,2)
+  final double fu; // N/mm²
+  final double betaW; // factor de correlación soldadura (EN 1993-1-8 tabla 4.1)
+  final double e; // módulo de elasticidad N/mm²
+  final double density; // kg/m³
+  final MaterialKind kind;
+  final String description;
+  final String weld; // proceso y material de aportación
+  final String norm;
+  const SteelGrade(this.name, this.fy, this.fu, this.betaW,
+      {this.e = 210000,
+      this.density = 7850,
+      this.kind = MaterialKind.carbon,
+      this.description = '',
+      this.weld = '135 (MAG) hilo G 42 4 M21 3Si1 (ER70S-6) / 111 electrodo E 42 4 B (E7018)',
+      this.norm = 'EN 10025-2'});
+
+  bool get isSteel => kind != MaterialKind.aluminium;
+
+  /// Tornillería adecuada (evita par galvánico).
+  String get bolts => switch (kind) {
+        MaterialKind.stainless => 'Tornillería inoxidable A4-70 (EN ISO 3506)',
+        MaterialKind.aluminium => 'Tornillería inoxidable A2-70/A4-70 con arandelas aislantes',
+        _ => 'Tornillería 8.8 galvanizada (EN 15048 / EN 14399)',
+      };
+}
+
+const s235 = SteelGrade('S235JR', 235, 360, 0.80,
+    description: 'Acero estructural no aleado de uso general, buena soldabilidad. Cerrajería y piezas ligeras.');
+const s275 = SteelGrade('S275JR', 275, 430, 0.85,
+    description: 'Acero estructural más habitual en edificación (antiguo A42). Tenacidad a +20 °C.');
+const s275j0 = SteelGrade('S275J0', 275, 430, 0.85,
+    description: 'S275 con tenacidad garantizada a 0 °C: exteriores y zonas frías.');
+const s275j2 = SteelGrade('S275J2', 275, 430, 0.85,
+    description: 'S275 con tenacidad a −20 °C: uniones muy soldadas y climas fríos.');
+const s355jr = SteelGrade('S355JR', 355, 490, 0.90,
+    description: 'Acero de alta resistencia (antiguo A52). Luces grandes y piezas muy cargadas.',
+    weld: '135 (MAG) hilo G 46 4 M21 4Si1 (ER70S-6) / 111 electrodo E 46 4 B');
+const s355j0 = SteelGrade('S355J0', 355, 490, 0.90,
+    description: 'S355 con tenacidad a 0 °C.', weld: '135 (MAG) hilo G 46 4 M21 4Si1 / 111 electrodo E 46 4 B');
+const s355 = SteelGrade('S355J2', 355, 490, 0.90,
+    description: 'S355 con tenacidad a −20 °C: estructuras exigentes y exteriores fríos.',
+    weld: '135 (MAG) hilo G 46 4 M21 4Si1 / 111 electrodo E 46 4 B');
+const s355w = SteelGrade('S355J2W (corten)', 355, 490, 0.90,
+    kind: MaterialKind.weathering,
+    norm: 'EN 10025-5',
+    description: 'Acero autopatinable (corten): forma una pátina de óxido protectora; sin pintura. '
+        'Evitar zonas con agua estancada o ambiente marino.',
+    weld: '135 (MAG) hilo patinable G 46 4 M21 Z (ER80S-Ni1 / ER80S-W) para igualar color y corrosión');
+const inox304 = SteelGrade('Inox 1.4301 (AISI 304)', 210, 520, 1.0,
+    e: 200000,
+    density: 7900,
+    kind: MaterialKind.stainless,
+    norm: 'EN 10088-4 / EN 1993-1-4',
+    description: 'Acero inoxidable austenítico para interiores y exteriores no marinos: barandillas, pasamanos, '
+        'elementos vistos.',
+    weld: '141 (TIG) o 131 (MIG) varilla/hilo 19 9 L Si (ER308LSi), gas Ar; decapado y pasivado tras soldar');
+const inox316 = SteelGrade('Inox 1.4401 (AISI 316)', 220, 530, 1.0,
+    e: 200000,
+    density: 8000,
+    kind: MaterialKind.stainless,
+    norm: 'EN 10088-4 / EN 1993-1-4',
+    description: 'Inoxidable con molibdeno: ambiente marino, piscinas, industria química.',
+    weld: '141 (TIG) o 131 (MIG) varilla/hilo 19 12 3 L Si (ER316LSi), gas Ar; decapado y pasivado');
+const alu6060 = SteelGrade('Aluminio EN AW-6060 T6', 140, 170, 1.0,
+    e: 70000,
+    density: 2700,
+    kind: MaterialKind.aluminium,
+    norm: 'EN 755-2 / EN 1999-1-1',
+    description: 'Aleación de extrusión para perfilería ligera (pérgolas, barandillas, carpintería). '
+        'Tres veces más flexible que el acero.',
+    weld: '131 (MIG) hilo AlMg5 (ER5356) o AlSi5 (ER4043), gas Ar; la soldadura reduce la resistencia en la zona afectada');
+const alu6082 = SteelGrade('Aluminio EN AW-6082 T6', 250, 290, 1.0,
+    e: 70000,
+    density: 2700,
+    kind: MaterialKind.aluminium,
+    norm: 'EN 755-2 / EN 1999-1-1',
+    description: 'Aleación estructural de aluminio más resistente. Pasarelas, plataformas ligeras, estructuras '
+        'desmontables.',
+    weld: '131 (MIG) hilo AlMg5 (ER5356), gas Ar; resistencia en zona afectada ≈ 50 % (EN 1999-1-1)');
+
+const allGrades = [s235, s275, s275j0, s275j2, s355jr, s355j0, s355, s355w, inox304, inox316, alu6060, alu6082];
+
+/// Material indicado en un texto normalizado (minúsculas, sin tildes). Null si no se indica.
+SteelGrade? gradeFromText(String t) {
+  bool h(String re) => RegExp(re).hasMatch(t);
+  if (h(r'aluminio|(?<![a-z])alu(?![a-z])|6082|6061|6060|6063')) {
+    return h(r'6082|6061|estructural') ? alu6082 : alu6060;
+  }
+  if (h(r'inox|1\.4401|1\.4404|aisi ?316|(?<![0-9])316l?(?![0-9])')) {
+    return h(r'316|1\.440|marin|piscina|costa') ? inox316 : inox304;
+  }
+  if (h(r'corten|patinable|s355j2w|s355j0w')) return s355w;
+  if (h(r's355\s*jr')) return s355jr;
+  if (h(r's355\s*j0')) return s355j0;
+  if (h(r's355')) return s355;
+  if (h(r's275\s*j2')) return s275j2;
+  if (h(r's275\s*j0')) return s275j0;
+  if (h(r's275')) return s275;
+  if (h(r's235')) return s235;
+  return null;
+}
 
 /// Módulo de elasticidad del acero (N/mm²).
 const double steelE = 210000;

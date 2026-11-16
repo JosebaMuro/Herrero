@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'bom.dart';
+import 'materials.dart';
 import 'model.dart';
 import 'parser.dart';
 import 'profiles.dart';
@@ -13,8 +14,58 @@ part 'designer_extra.dart';
 
 const double _limit = 0.90; // aprovechamiento objetivo en predimensionado
 
+/// Módulo de elasticidad del material del proyecto en curso (acero, inox, aluminio).
+double _E = steelE;
+
+/// Perfiles o familias impuestos por el usuario por parte de la estructura.
+Map<String, String> _parts = {};
+final Set<String> _partsUsed = {};
+
+/// Parte de la estructura a la que pertenece una comprobación ("Pilar SHS…").
+String? _partOf(String label) {
+  final l = normalize(label);
+  if (l.startsWith('viga de atado') || l.startsWith('placa') || l.startsWith('soldadura')) return null;
+  if (RegExp(r'^(pilar|pata|poste|puntal|soporte|montante(?! barandilla))').hasMatch(l)) return 'pilares';
+  if (l.startsWith('correa')) return 'correas';
+  if (l.startsWith('vigueta')) return 'viguetas';
+  if (l.startsWith('zanca')) return 'zancas';
+  if (RegExp(r'^(cruz|arriostr|diagonal|tirante)').hasMatch(l)) return 'arriostramiento';
+  if (l.startsWith('cordon')) return 'cordones';
+  if (RegExp(r'^(montante barandilla|pasamanos|barandilla)').hasMatch(l)) return 'barandilla';
+  if (RegExp(r'^(viga|dintel|jacena|larguero|travesano)').hasMatch(l)) return 'vigas';
+  return null;
+}
+
+/// Candidatos según la preferencia del usuario (perfil exacto o familia).
+List<SteelProfile> _prefCands(String pref, List<SteelProfile> cands) {
+  final exact = profileByName(pref);
+  if (exact != null) return [exact];
+  if (pref.endsWith('*')) {
+    // tamaño indicado sin espesor ("tubo 80x80"): la app elige el espesor
+    final pre = pref.substring(0, pref.length - 1);
+    final l = allProfiles.where((p) => p.name.startsWith(pre)).toList();
+    if (l.isNotEmpty) return l;
+  }
+  final fams = switch (pref) {
+    'heb' => [ProfileFamily.heb],
+    'ipe' => [ProfileFamily.ipe],
+    'upn' => [ProfileFamily.upn],
+    'shs' => [ProfileFamily.shs],
+    'rhs' => [ProfileFamily.rhs],
+    'tubo' => [ProfileFamily.shs, ProfileFamily.rhs],
+    'angle' => [ProfileFamily.angle],
+    'round' => [ProfileFamily.round],
+    _ => <ProfileFamily>[],
+  };
+  final list = [for (final f in fams) ...tableFor(f)];
+  // se respetan los tamaños mínimos del diseño cuando la familia coincide
+  final minH = cands.isEmpty ? 0.0 : cands.map((p) => p.h).reduce(math.min);
+  final filtered = list.where((p) => p.h >= minH * 0.8).toList();
+  return filtered.isNotEmpty ? filtered : (list.isNotEmpty ? list : cands);
+}
+
 double _lambdaBar(double lkMm, double iCm, double fy) =>
-    (lkMm / (iCm * 10)) / (math.pi * math.sqrt(steelE / fy));
+    (lkMm / (iCm * 10)) / (math.pi * math.sqrt(_E / fy));
 
 double _chi(double lb, double alpha) {
   if (lb <= 0.2) return 1.0;
@@ -35,6 +86,7 @@ double _alphaStrong(SteelProfile p) {
     case ProfileFamily.angle:
       return 0.34;
     case ProfileFamily.upn:
+    case ProfileFamily.round:
       return 0.49; // curva c
   }
 }
@@ -51,6 +103,7 @@ double _alphaWeak(SteelProfile p) {
     case ProfileFamily.angle:
       return 0.34;
     case ProfileFamily.upn:
+    case ProfileFamily.round:
       return 0.49;
   }
 }
@@ -63,7 +116,7 @@ double _nPl(SteelProfile p, double fy) => p.area * fy / gammaM0 / 10;
 
 /// Flecha de viga biapoyada con carga uniforme (mm). q en kN/m, L en m.
 double _deflSS(double q, double l, SteelProfile p) =>
-    5 * q * math.pow(l * 1000, 4) / (384 * steelE * p.iy * 1e4);
+    5 * q * math.pow(l * 1000, 4) / (384 * _E * p.iy * 1e4);
 
 /// Elige el primer perfil (más ligero) cuyas comprobaciones cumplen.
 SteelProfile _choose(
@@ -72,6 +125,15 @@ SteelProfile _choose(
   List<Check> out, {
   double limit = _limit,
 }) {
+  if (_parts.isNotEmpty && candidates.isNotEmpty) {
+    final cs0 = checksFor(candidates.first);
+    final part = cs0.isEmpty ? null : _partOf(cs0.first.element);
+    final pref = part == null ? null : _parts[part];
+    if (pref != null) {
+      candidates = _prefCands(pref, candidates);
+      _partsUsed.add(part!);
+    }
+  }
   final sorted = [...candidates]..sort((a, b) => a.kgm.compareTo(b.kgm));
   for (final p in sorted) {
     final cs = checksFor(p);
@@ -114,14 +176,27 @@ double _roundUp(double v, double step) => (v / step).ceil() * step;
 
 /// Peso propio del material de cubierta / suelo (kN/m²)
 double _roofingWeight(String r) {
-  if (r.contains('sandwich') || r.contains('sándwich')) return 0.15;
-  if (r.contains('policarbonato')) return 0.05;
+  final em = RegExp(r'(\d+(?:[.,]\d)?)\s*mm').firstMatch(r);
+  final e = em == null ? null : double.parse(em[1]!.replaceAll(',', '.'));
+  if (r.contains('sandwich') || r.contains('sándwich')) {
+    final t = e ?? 40;
+    // PUR/PIR: dos chapas 0,5 mm + núcleo; lana de roca ≈ 100–120 kg/m³
+    return r.contains('lana') ? 0.10 + t * 0.0011 : 0.095 + t * 0.0003;
+  }
+  if (r.contains('policarbonato')) {
+    final t = e ?? (r.contains('compacto') ? 6 : 16);
+    return r.contains('compacto') ? math.max(0.05, t * 0.012) : math.max(0.02, t * 0.0017);
+  }
   if (r.contains('teja')) return 0.65;
   if (r.contains('fotovolta')) return 0.25;
+  if (r.contains('vidrio')) return 0.30; // laminado 6+6 (0,30 kN/m²)
+  if (r.contains('fibrocemento')) return 0.20;
   if (r.contains('sin cubierta')) return 0.0;
   if (r.contains('tramex')) return 0.40;
   if (r.contains('colaborante')) return 2.60;
-  if (r.contains('tablero') || r.contains('lagrimada')) return 0.45;
+  if (r.contains('tablero')) return 0.20;
+  if (r.contains('lagrimada')) return math.max(0.35, (e ?? 5) * 0.0785 + 0.05);
+  if (e != null) return math.max(0.08, e * 0.11 + 0.03); // chapa grecada por espesor
   return 0.12; // chapa grecada
 }
 
@@ -135,6 +210,9 @@ Design designFromPrompt(String prompt) {
 }
 
 Design designFromSpec(StructureSpec spec, String prompt) {
+  _E = spec.grade.e;
+  _parts = spec.parts;
+  _partsUsed.clear();
   final Design d;
   switch (spec.type) {
     case StructureType.nave:
@@ -177,9 +255,50 @@ Design designFromSpec(StructureSpec spec, String prompt) {
       d = _designPoste(spec, prompt);
       break;
   }
+  _applyMaterial(d);
   buildBom(d);
   return d;
 }
+
+/// Material del proyecto: hipótesis, soldadura, tornillería y perfiles impuestos.
+void _applyMaterial(Design d) {
+  final g = d.spec.grade;
+  d.hypotheses.add('Material: ${g.name} (${g.norm}) – ${g.description} '
+      'fy = ${_f(g.fy, 0)} N/mm², E = ${_f(g.e / 1000, 0)} GPa, densidad ${_f(g.density, 0)} kg/m³.');
+  d.hypotheses.add('Soldadura: ${g.weld}.');
+  d.hypotheses.add('${g.bolts}.');
+  if (g.kind == MaterialKind.aluminium) {
+    d.warnings.add('Aluminio: predimensionado con el método del acero cambiando fy y E (≈ 3 veces más flexible). '
+        'Debe verificarse con EN 1999-1-1, incluida la pérdida de resistencia en la zona afectada por la soldadura.');
+  } else if (g.kind == MaterialKind.stainless) {
+    d.warnings.add('Acero inoxidable: verificar con EN 1993-1-4 (curvas de pandeo y deformaciones propias).');
+  }
+  for (final w in d.welds) {
+    if (g.kind != MaterialKind.carbon || w.process.startsWith('135 (MAG) hilo ER70S-6')) w.process = g.weld;
+    w.density = g.density;
+  }
+  for (final p in d.plates) {
+    p.density = g.density;
+  }
+  if (d.spec.parts.isNotEmpty) {
+    final txt = d.spec.parts.entries.map((e) => '${e.key}: ${_prefLabel(e.value)}').join('; ');
+    d.hypotheses.add('Perfiles indicados por el usuario (se respetan): $txt.');
+    for (final part in d.spec.parts.keys) {
+      if (!_partsUsed.contains(part)) {
+        d.warnings.add('La parte «$part» indicada no existe en esta tipología o no se calcula aparte.');
+      }
+    }
+    for (final c in d.checks) {
+      final part = _partOf(c.element);
+      if (part != null && d.spec.parts.containsKey(part) && c.utilization > 1) {
+        d.warnings.add('${c.element}: el perfil indicado no cumple (${c.description}, η = ${_f(c.utilization, 2)}). '
+            'Aumenta la sección o deja que la app la elija.');
+      }
+    }
+  }
+}
+
+String _prefLabel(String v) => prefLabel(v);
 
 List<String> _commonHypotheses(StructureSpec s) => [
       'Normativa: CTE DB-SE (bases de cálculo), DB-SE-AE (acciones), DB-SE-A (acero) y Eurocódigo 3 (EN 1993-1-1 y 1-8). Ejecución según EN 1090-2, clase EXC2.',
@@ -231,7 +350,7 @@ Design _designNave(StructureSpec s, String prompt) {
     qdPurlin = (1.35 * (gRoof * e + self) + 1.5 * qRoof * e);
     final med = qdPurlin * bay * bay / 10; // continua en 2+ vanos
     final qk = (gRoof * e + self + qRoof * e);
-    final defl = qk * math.pow(bay * 1000, 4) / (185 * steelE * p.iy * 1e4);
+    final defl = qk * math.pow(bay * 1000, 4) / (185 * _E * p.iy * 1e4);
     return [
       Check('Correa ${p.name}', 'Flexión ELU  M = q·s²/10',
           med / _mRd(p, fy),
@@ -795,7 +914,7 @@ Design _designMarquesina(StructureSpec s, String prompt) {
     final lb = _lambdaBar(2.0 * colH * 1000, p.ry, fy);
     final nb = _chi(lb, _alphaStrong(p)) * p.area * fy / gammaM1 / 10;
     final mrd = _mRd(p, fy);
-    final dx = fk * math.pow(colH * 1000, 3) / (3 * steelE * p.iy * 1e4) * 1000;
+    final dx = fk * math.pow(colH * 1000, 3) / (3 * _E * p.iy * 1e4) * 1000;
     return [
       Check('Pilar ${p.name}', 'Flexocompresión  N/Nb + M/Mc ≤ 1 (ménsula)',
           ned / nb + med / mrd,

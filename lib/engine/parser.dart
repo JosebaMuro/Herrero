@@ -104,6 +104,14 @@ const Map<String, double> _snowCities = {
   'canarias': 0.2,
 };
 
+/// Primera capital reconocida en el texto normalizado (para nieve/viento).
+String? cityIn(String t) {
+  for (final k in _snowCities.keys) {
+    if (RegExp('(?<![a-z])$k(?![a-z])').hasMatch(t)) return k;
+  }
+  return null;
+}
+
 /// Zona eólica C (qb 0,52) para algunas zonas costeras/insulares.
 const List<String> _windZoneC = [
   'canarias',
@@ -396,24 +404,61 @@ StructureSpec parsePrompt(String prompt) {
     }
   }
 
+  // --- Materiales por partes ---------------------------------------------------
+  final parts = partProfiles(t, notes);
+  // Cerramiento lateral: se aparta del texto para no confundirlo con la cubierta
+  var cladding = '';
+  var tr = t; // texto para detectar la cubierta
+  final cl = RegExp(r'(?:cerramientos?|fachadas?|paredes|laterales|cerrada con|cerrado con)(?:\s+laterales?)?\s+(?:de|con|en)?\s*'
+          r'(panel sandwich(?:\s+de\s+\d+\s*mm)?|chapa grecada|chapa|bloque de hormigon|bloque|ladrillo|policarbonato|malla|lamas)')
+      .firstMatch(t);
+  if (cl != null) {
+    cladding = cl[1]!.replaceAll('sandwich', 'sándwich').replaceAll('hormigon', 'hormigón');
+    tr = t.replaceRange(cl.start, cl.end, ' ');
+    notes.add('Cerramiento lateral: $cladding.');
+  }
+  // Cubierta indicada expresamente ("cubierta de …", "techo de …")
+  final rc = RegExp(r'(?:cubierta|techo|tejado|cubricion)\s+(?:de|con|en)\s+([a-z ]{4,40}?)(?=[,.;]|$| y | sobre | a | en )').firstMatch(tr);
+  if (rc != null) tr = '${rc[1]} $tr';
+
   // --- Cubierta -------------------------------------------------------------
   var roofing = 'chapa grecada';
-  if (RegExp(r'sandwich').hasMatch(t)) {
-    roofing = 'panel sándwich';
-  } else if (RegExp(r'policarbonato').hasMatch(t)) {
-    roofing = 'policarbonato celular';
-  } else if (RegExp(r'teja').hasMatch(t)) {
+  final rt = rc != null ? rc[1]! : tr;
+  String? mm(String what) {
+    final m = RegExp('$what\\D{0,14}?(\\d{1,3}(?:\\.\\d)?)\\s*mm|(\\d{1,3}(?:\\.\\d)?)\\s*mm\\D{0,10}$what').firstMatch(rt);
+    return m == null ? null : (m[1] ?? m[2]);
+  }
+  if (RegExp(r'sandwich').hasMatch(rt)) {
+    final e = mm('sandwich');
+    final rock = RegExp(r'lana de roca|lana mineral').hasMatch(rt);
+    roofing = 'panel sándwich${e != null ? ' $e mm' : ''}${rock ? ' lana de roca' : ''}';
+  } else if (RegExp(r'policarbonato').hasMatch(rt)) {
+    final e = mm('policarbonato');
+    roofing = RegExp(r'compacto').hasMatch(rt)
+        ? 'policarbonato compacto${e != null ? ' $e mm' : ''}'
+        : 'policarbonato celular${e != null ? ' $e mm' : ''}';
+  } else if (RegExp(r'(?<![a-z])tejas?(?![a-z])').hasMatch(rt)) {
     roofing = 'teja sobre panel';
-  } else if (RegExp(r'fotovoltaic|placas solares|paneles solares').hasMatch(t)) {
+  } else if (RegExp(r'fotovoltaic|placas solares|paneles solares').hasMatch(rt)) {
     roofing = 'paneles fotovoltaicos';
-  } else if (RegExp(r'sin cubierta|abierta|lamas|celosia|vegetal|toldo').hasMatch(t)) {
+  } else if (RegExp(r'vidrio|cristal').hasMatch(rt) && type.hasRoof) {
+    roofing = 'vidrio laminado de seguridad';
+  } else if (RegExp(r'fibrocemento|uralita').hasMatch(rt)) {
+    roofing = 'placa de fibrocemento sin amianto';
+  } else if (RegExp(r'sin cubierta|abierta|lamas|celosia|vegetal|toldo').hasMatch(rt)) {
     roofing = 'sin cubierta (pérgola abierta)';
   } else if (type == StructureType.entreplanta) {
-    roofing = RegExp(r'tramex|rejilla').hasMatch(t)
+    final e = mm('lagrimada');
+    roofing = RegExp(r'tramex|rejilla').hasMatch(rt)
         ? 'rejilla tramex'
-        : (RegExp(r'colaborante|hormigon').hasMatch(t)
+        : (RegExp(r'colaborante|hormigon').hasMatch(rt)
             ? 'chapa colaborante + losa de hormigón'
-            : 'tablero/chapa lagrimada');
+            : (RegExp(r'tablero|madera|fenolico|osb').hasMatch(rt)
+                ? 'tablero fenólico/madera'
+                : 'chapa lagrimada${e != null ? ' $e mm' : ''}'));
+  } else if (RegExp(r'chapa grecada|chapa').hasMatch(rt)) {
+    final e = mm('chapa');
+    roofing = 'chapa grecada${e != null ? ' $e mm' : ''}';
   }
 
   // --- Nieve ----------------------------------------------------------------
@@ -532,21 +577,21 @@ StructureSpec parsePrompt(String prompt) {
   }
 
   // --- Acero, acabado, barandilla -----------------------------------------
-  SteelGrade grade = s275;
-  if (t.contains('s355')) grade = s355;
-  if (t.contains('s235')) grade = s235;
+  final given = gradeFromText(t);
+  SteelGrade grade = given ?? s275;
+  if (given != null) notes.add('Material: ${given.name} – ${given.description}');
   String finish = 'pintado (imprimación + esmalte)';
   final color = RegExp(r'(negro|blanco|gris antracita|antracita|gris|verde|rojo|marron|azul|oxiron|ral ?\d{4})')
       .firstMatch(t)?[1];
-  if (t.contains('galvaniz')) {
+  if (grade.kind == MaterialKind.aluminium) {
+    finish = t.contains('lacad') || color != null ? 'aluminio lacado en ${color ?? 'blanco'}' : 'aluminio anodizado';
+  } else if (grade.kind == MaterialKind.stainless) {
+    finish = RegExp(r'pulid|brillo|espejo').hasMatch(t) ? 'inox pulido brillante' : 'inox satinado (grano 240)';
+  } else if (t.contains('galvaniz')) {
     finish = 'galvanizado en caliente';
     if (t.contains('lacad') || t.contains('pintad')) finish = 'galvanizado + lacado${color != null ? ' en $color' : ''}';
-  } else if (t.contains('corten')) {
-    finish = 'acero corten';
-  } else if (t.contains('inox')) {
-    finish = 'acero inoxidable';
-    notes.add('Acero inoxidable: el predimensionado se hace con acero al carbono S275; el inoxidable (EN 1993-1-4) '
-        'tiene otro módulo y resistencia, revisar con el fabricante.');
+  } else if (t.contains('corten') || grade.kind == MaterialKind.weathering) {
+    finish = 'acero corten (pátina natural)';
   } else if (t.contains('lacad') || color != null) {
     finish = 'lacado en ${color ?? 'negro'}';
   }
@@ -661,6 +706,8 @@ StructureSpec parsePrompt(String prompt) {
     slopePct: slope,
     bay: bay,
     roofing: roofing,
+    cladding: cladding,
+    parts: parts,
     snow: snow,
     wind: wind,
     liveLoad: live,
@@ -698,4 +745,142 @@ double _snowFromAltitude(double h) {
     }
   }
   return 4.2;
+}
+
+// ---------------------------------------------------------------------------
+// Perfiles / materiales por partes de la estructura
+// ---------------------------------------------------------------------------
+
+const Map<String, String> _partWords = {
+  'pilares': r'pilar(?:es)?|columnas?|soportes?|postes?|pies derechos|patas',
+  'vigas': r'vigas?(?! de atado)(?! carril)|dinteles?|jacenas?|largueros?',
+  'correas': r'correas?',
+  'arriostramiento': r'tirantes?|cruces(?: de san andres)?|cruz de san andres|arriostramientos?|contravientos?|diagonales|riostras?',
+  'viguetas': r'viguetas?',
+  'zancas': r'zancas?',
+  'barandilla': r'barandillas?|pasamanos',
+  'cordones': r'cordon(?:es)?(?: superior(?:es)?| inferior(?:es)?)?',
+};
+
+/// Interpreta la designación de un perfil o familia en un fragmento de texto.
+/// Devuelve un perfil exacto ("HEB 220"), un prefijo ("SHS 80x*": espesor a
+/// elegir) o una familia (heb, ipe, upn, shs, rhs, tubo, angle, round).
+String? _profileIn(String w, List<String> notes) {
+  final open = RegExp(r'(?<![a-z])(ipe|ipn|heb|hea|hem|upn|upe)\s*(\d{2,3})(?!\d)').firstMatch(w);
+  if (open != null) {
+    var fam = open[1]!;
+    final n = open[2]!;
+    if (fam == 'hea' || fam == 'hem') {
+      notes.add('${fam.toUpperCase()} $n no está en el catálogo de la app: se usa HEB $n (mismo canto, del lado de la seguridad).');
+      fam = 'heb';
+    } else if (fam == 'ipn') {
+      fam = 'ipe';
+    } else if (fam == 'upe') {
+      fam = 'upn';
+    }
+    final name = '${fam.toUpperCase()} $n';
+    if (profileByName(name) != null) return name;
+    notes.add('$name no está en el catálogo: la app elige el ${fam.toUpperCase()} adecuado.');
+    return fam;
+  }
+  final lm = RegExp(r'(?<![a-z])(?:l|angular(?:es)?|angulos?)\s*(\d{2,3})\s*x\s*(?:\d{2,3}\s*x\s*)?(\d{1,2})(?![\d.])').firstMatch(w);
+  if (lm != null) {
+    final name = 'L ${lm[1]}x${lm[2]}';
+    return profileByName(name) != null ? name : 'angle';
+  }
+  final tb = RegExp(r'(?:(shs|rhs|tubos?(?: estructural(?:es)?)?(?: cuadrados?| rectangular(?:es)?)?|tubular(?:es)?|cuadradillos?)\s*(?:de\s*)?)?'
+          r'(?<![\d.])(\d{2,3})\s*x\s*(\d{1,3}(?:\.\d)?)(?:\s*x\s*(\d{1,2}(?:\.\d)?))?(?![\d.])(?!\s*(?:m|cm)\b)')
+      .firstMatch(w);
+  if (tb != null) {
+    final a = double.parse(tb[2]!), b = double.parse(tb[3]!);
+    final t = tb[4] == null ? null : double.parse(tb[4]!);
+    String n(double v) => v.toStringAsFixed(v % 1 == 0 ? 0 : 1);
+    if (tb[1] != null || (a >= 20 && (b >= 20 || t == null && b <= 12))) {
+      if (t == null && b <= 12 && tb[1] != null) {
+        // "SHS 100x5" (lado x espesor)
+        final name = 'SHS ${n(a)}x${n(b)}';
+        return profileByName(name) != null ? name : 'SHS ${n(a)}x*';
+      }
+      if (b >= 20) {
+        final square = a == b;
+        if (t != null) {
+          final name = square ? 'SHS ${n(a)}x${n(t)}' : 'RHS ${n(math.max(a, b))}x${n(math.min(a, b))}x${n(t)}';
+          if (profileByName(name) != null) return name;
+        }
+        final pre = square ? 'SHS ${n(a)}x' : 'RHS ${n(math.max(a, b))}x${n(math.min(a, b))}x';
+        if (allProfiles.any((p) => p.name.startsWith(pre))) return '$pre*';
+        notes.add('Tubo ${n(a)}x${n(b)} no está en el catálogo: la app elige el tubo adecuado.');
+        return square ? 'shs' : 'rhs';
+      }
+    }
+  }
+  final rd = RegExp(r'(?<![a-z])(?:(?:redondos?|varillas?|barras?|cables?)\s*(?:macizos?\s*)?(?:de\s*)?(?:ø\s*|diametro\s*|d\s*)?|r\s*)(\d{1,2})(?:\s*mm)?(?![\d.x])')
+      .firstMatch(w);
+  if (rd != null) {
+    final name = 'R${rd[1]}';
+    return profileByName(name) != null ? name : 'round';
+  }
+  if (RegExp(r'(?<![a-z])(redondos?|varillas?|barras? macizas?|cables?)(?![a-z])').hasMatch(w)) return 'round';
+  if (RegExp(r'(?<![a-z])(angular(?:es)?|angulos?|perfil(?:es)? (?:en )?l)(?![a-z])').hasMatch(w)) return 'angle';
+  if (RegExp(r'tubos? (?:redondos?|circular(?:es)?)').hasMatch(w)) {
+    notes.add('Tubo redondo: el catálogo de la app no incluye CHS; se calcula con tubo cuadrado equivalente.');
+    return 'tubo';
+  }
+  if (RegExp(r'(?<![a-z])(rhs|tubos? rectangular(?:es)?)(?![a-z])').hasMatch(w)) return 'rhs';
+  if (RegExp(r'(?<![a-z])(shs|tubos? cuadrados?|cuadradillos?)(?![a-z])').hasMatch(w)) return 'shs';
+  if (RegExp(r'(?<![a-z])(tubos?|tubular(?:es)?)(?![a-z])').hasMatch(w)) return 'tubo';
+  final fam = RegExp(r'(?<![a-z])(ipe|ipn|heb|hea|hem|upn|upe)(?![a-z])').firstMatch(w);
+  if (fam != null) {
+    return switch (fam[1]) { 'hea' || 'hem' => 'heb', 'ipn' => 'ipe', 'upe' => 'upn', final f => f! };
+  }
+  if (RegExp(r'perfil(?:es)? (?:en )?u(?![a-z])').hasMatch(w)) return 'upn';
+  if (RegExp(r'perfil(?:es)? (?:en )?(?:doble t|i)(?![a-z])').hasMatch(w)) return 'ipe';
+  if (RegExp(r'perfil(?:es)? (?:en )?h(?![a-z])').hasMatch(w)) return 'heb';
+  return null;
+}
+
+/// Perfiles o familias que el usuario impone a cada parte de la estructura
+/// ("pilares HEB 220, correas de tubo, tirantes de redondo"). Lo no indicado
+/// lo elige la app.
+Map<String, String> partProfiles(String t, [List<String>? notes]) {
+  final out = <String, String>{};
+  final ns = notes ?? <String>[];
+  final all = RegExp('(?<![a-z])(?:${_partWords.values.join('|')})(?![a-z])');
+  for (final e in _partWords.entries) {
+    for (final m in RegExp('(?<![a-z])(?:${e.value})(?![a-z])').allMatches(t)) {
+      // ventana: hasta la siguiente coma/punto o la siguiente parte
+      var end = t.length;
+      final stop = RegExp(r'[,;.](?!\d)|\s+(?:y|e)\s+').firstMatch(t.substring(m.end));
+      if (stop != null) end = m.end + stop.start;
+      final next = all.firstMatch(t.substring(m.end));
+      if (next != null && m.end + next.start < end) end = m.end + next.start;
+      if (end - m.end > 48) end = m.end + 48;
+      final w = t.substring(m.end, end);
+      // evita "pilares de 3 m", "barandilla de 1 m de alto"
+      final p = _profileIn(w, ns);
+      if (p != null) {
+        out.putIfAbsent(e.key, () => p);
+        break;
+      }
+    }
+  }
+  // Forma inversa: "HEB 200 en (los) pilares", "tubo 80x80 para las vigas"
+  final inv = RegExp('([a-z0-9 .x]{2,32}?)\\s+(?:en|para)\\s+(?:los\\s+|las\\s+|el\\s+|la\\s+)?(${_partWords.values.join('|')})(?![a-z])');
+  for (final m in inv.allMatches(t)) {
+    final p = _profileIn(m[1]!, ns);
+    if (p == null) continue;
+    for (final e in _partWords.entries) {
+      if (RegExp('^(?:${e.value})\$').hasMatch(m[2]!)) out.putIfAbsent(e.key, () => p);
+    }
+  }
+  // "estructura de tubo", "todo en tubo": se aplica a pilares y vigas no indicados
+  final g = RegExp(r'(?:estructura|todo|toda)\s+(?:de|en|con)\s+(?:perfiles?\s+)?([a-z0-9 .x]{3,30})').firstMatch(t);
+  if (g != null) {
+    final p = _profileIn(g[1]!, ns);
+    if (p != null && !RegExp(r'\d').hasMatch(p)) {
+      out.putIfAbsent('pilares', () => p);
+      out.putIfAbsent('vigas', () => p);
+    }
+  }
+  return out;
 }

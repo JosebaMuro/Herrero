@@ -14,15 +14,18 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'sd_pipeline.dart';
 
 const modelsRelease = 'https://github.com/JosebaMuro/Herrero/releases/download/models-sdturbo-v1';
+const ocrRelease = 'https://github.com/JosebaMuro/Herrero/releases/download/models-ocr-v1';
 
 /// Paso de la app que usa un modelo de IA.
-enum ModelTask { photo }
+enum ModelTask { photo, plans }
 
 extension ModelTaskLabel on ModelTask {
   String get label {
     switch (this) {
       case ModelTask.photo:
         return 'Foto realista (IA local)';
+      case ModelTask.plans:
+        return 'Importar plano (lector OCR local)';
     }
   }
 
@@ -30,6 +33,8 @@ extension ModelTaskLabel on ModelTask {
     switch (this) {
       case ModelTask.photo:
         return 'Convierte el render 3D de la estructura en una fotografía realista, sin internet.';
+      case ModelTask.plans:
+        return 'Lee rótulos y cotas de fotos de planos y de PDF escaneados para convertirlos en el prompt.';
     }
   }
 }
@@ -51,6 +56,10 @@ class ModelVariant {
   final String quality; // texto
   final String speed; // texto
   final int approxBytes; // tamaño aproximado antes de leer el catálogo
+  final String release; // URL base de la release con los ficheros
+  final String subdir; // carpeta local
+  final List<String>? fileList;
+  final List<(String, String)>? partList;
   const ModelVariant({
     required this.id,
     required this.task,
@@ -67,12 +76,17 @@ class ModelVariant {
     required this.quality,
     required this.speed,
     required this.approxBytes,
+    this.release = modelsRelease,
+    this.subdir = 'sdturbo',
+    this.fileList,
+    this.partList,
   });
 
-  List<String> get files => [textEncoderFile, unetFile, vaeEncoderFile, vaeDecoderFile, 'vocab.json', 'merges.txt'];
+  List<String> get files =>
+      fileList ?? [textEncoderFile, unetFile, vaeEncoderFile, vaeDecoderFile, 'vocab.json', 'merges.txt'];
 
   /// Componentes, para mostrar al usuario qué se descarga y para qué paso.
-  List<(String, String)> get parts => [
+  List<(String, String)> get parts => partList ?? [
     ('Codificador de texto (CLIP int8)', textEncoderFile),
     ('Generador de imagen (UNet)', unetFile),
     (tinyVae ? 'Codificador de imagen (TAESD)' : 'Codificador de imagen (VAE)', vaeEncoderFile),
@@ -111,6 +125,28 @@ const catalog = <ModelVariant>[
     quality: 'Muy buena',
     speed: 'Rápida',
     approxBytes: 1600000000,
+  ),
+  ModelVariant(
+    id: 'ppocr-v4',
+    task: ModelTask.plans,
+    name: 'Lector de planos · PP-OCRv4',
+    summary:
+        'Detector y lector de texto ligeros (PaddleOCR, Apache-2.0). Lee rótulos, cotas y perfiles de '
+        'fotos de planos y PDF escaneados. Funciona igual en móvil y en PC.',
+    unetFile: '',
+    minRamGb: 2,
+    recRamGb: 3,
+    quality: 'Texto impreso: muy buena · croquis a mano: limitada',
+    speed: 'Unos segundos por plano',
+    approxBytes: 15700000,
+    release: ocrRelease,
+    subdir: 'ocr',
+    fileList: ['ppocrv4_det.onnx', 'ppocrv4_rec.onnx', 'ppocr_keys.txt'],
+    partList: [
+      ('Detector de texto', 'ppocrv4_det.onnx'),
+      ('Lector de caracteres', 'ppocrv4_rec.onnx'),
+      ('Diccionario de caracteres', 'ppocr_keys.txt'),
+    ],
   ),
 ];
 
@@ -167,6 +203,7 @@ class DeviceProfile {
   /// Modelo recomendado (el más equilibrado para este equipo).
   ModelVariant recommended(ModelTask task) {
     ModelVariant byId(String id) => catalog.firstWhere((m) => m.id == id);
+    if (task == ModelTask.plans) return byId('ppocr-v4');
     final known = ramGb > 0;
     if (isMobile) {
       // En móvil la memoria manda: el VAE completo a 512 px pide más de 2 GB libres.
@@ -219,7 +256,9 @@ class ModelManager extends ChangeNotifier {
   ModelManager._();
   static final ModelManager instance = ModelManager._();
 
-  Map<String, dynamic>? manifest;
+  /// Manifiestos por release (URL base).
+  final Map<String, Map<String, dynamic>> manifests = {};
+  Map<String, dynamic>? get manifest => manifests[modelsRelease];
   final Map<String, ModelStatus> status = {};
   final Map<String, bool> _cancel = {};
   String? activeId;
@@ -229,12 +268,16 @@ class ModelManager extends ChangeNotifier {
   DeviceProfile? device;
   bool _loaded = false;
 
-  Future<Directory> dir() async {
+  Future<Directory> dir([String subdir = 'sdturbo']) async {
     final base = await getApplicationSupportDirectory();
-    final d = Directory('${base.path}${Platform.pathSeparator}models${Platform.pathSeparator}sdturbo');
+    final d = Directory('${base.path}${Platform.pathSeparator}models${Platform.pathSeparator}$subdir');
     if (!d.existsSync()) d.createSync(recursive: true);
     return d;
   }
+
+  static List<(String, String)> get _releases => {for (final m in catalog) m.release: m.subdir}.entries
+      .map((e) => (e.key, e.value))
+      .toList();
 
   Future<void> load() async {
     if (_loaded) return;
@@ -247,22 +290,26 @@ class ModelManager extends ChangeNotifier {
       engine = AiEngine.values[sp.getInt('ai.engine') ?? device!.recommendedEngine.index];
       fidelity = (sp.getInt('ai.fidelity') ?? 1).clamp(0, 2);
     } catch (_) {}
-    final d = await dir();
-    final mf = File('${d.path}${Platform.pathSeparator}manifest.json');
-    if (mf.existsSync()) {
-      try {
-        manifest = json.decode(await mf.readAsString()) as Map<String, dynamic>;
-      } catch (_) {}
+    for (final (rel, sub) in _releases) {
+      final d = await dir(sub);
+      final mf = File('${d.path}${Platform.pathSeparator}manifest.json');
+      if (mf.existsSync()) {
+        try {
+          manifests[rel] = json.decode(await mf.readAsString()) as Map<String, dynamic>;
+        } catch (_) {}
+      }
     }
     for (final m in catalog) {
       status[m.id] = ModelStatus(await _isInstalled(m) ? DlState.installed : DlState.notInstalled);
     }
     if (activeId == null || status[activeId]?.state != DlState.installed) {
-      final inst = catalog.where((m) => status[m.id]!.state == DlState.installed).toList();
+      final inst = _photo.where((m) => status[m.id]!.state == DlState.installed).toList();
       activeId = inst.isEmpty ? null : inst.first.id;
     }
     notifyListeners();
   }
+
+  Iterable<ModelVariant> get _photo => catalog.where((m) => m.task == ModelTask.photo);
 
   Future<void> savePrefs() async {
     try {
@@ -276,39 +323,50 @@ class ModelManager extends ChangeNotifier {
   }
 
   Future<bool> _isInstalled(ModelVariant m) async {
-    final d = await dir();
+    final d = await dir(m.subdir);
     for (final f in m.files) {
       final file = File('${d.path}${Platform.pathSeparator}$f');
       if (!file.existsSync()) return false;
-      final exp = _fileInfo(f)?['size'];
+      final exp = _fileInfo(m, f)?['size'];
       if (exp is int && file.lengthSync() != exp) return false;
     }
     return true;
   }
 
-  Map<String, dynamic>? _fileInfo(String f) =>
-      (manifest?['files'] as Map<String, dynamic>?)?[f] as Map<String, dynamic>?;
+  Map<String, dynamic>? _fileInfo(ModelVariant m, String f) =>
+      (manifests[m.release]?['files'] as Map<String, dynamic>?)?[f] as Map<String, dynamic>?;
+
+  /// Tamaño de un fichero de una variante según su manifiesto.
+  int fileSize(ModelVariant m, String f) => (_fileInfo(m, f)?['size'] as int?) ?? 0;
 
   /// Tamaño total de una variante (bytes) según el manifiesto.
   int sizeOf(ModelVariant m) {
     var t = 0;
     for (final f in m.files) {
-      final s = _fileInfo(f)?['size'];
+      final s = _fileInfo(m, f)?['size'];
       if (s is int) t += s;
     }
     return t;
   }
 
   Future<void> fetchManifest() async {
-    final r = await http.get(Uri.parse('$modelsRelease/manifest.json'));
-    if (r.statusCode != 200) {
-      throw Exception('No se pudo obtener el catálogo de modelos (HTTP ${r.statusCode}).');
+    Object? lastError;
+    for (final (rel, sub) in _releases) {
+      try {
+        final r = await http.get(Uri.parse('$rel/manifest.json'));
+        if (r.statusCode != 200) {
+          throw Exception('No se pudo obtener el catálogo de modelos (HTTP ${r.statusCode}).');
+        }
+        manifests[rel] = json.decode(utf8.decode(r.bodyBytes)) as Map<String, dynamic>;
+        final d = await dir(sub);
+        await File('${d.path}${Platform.pathSeparator}manifest.json').writeAsBytes(r.bodyBytes);
+      } catch (e) {
+        lastError = e;
+      }
     }
-    manifest = json.decode(utf8.decode(r.bodyBytes)) as Map<String, dynamic>;
-    final d = await dir();
-    await File('${d.path}${Platform.pathSeparator}manifest.json').writeAsBytes(r.bodyBytes);
+    if (manifests.isEmpty && lastError != null) throw lastError;
     for (final m in catalog) {
-      final available = m.files.every((f) => _fileInfo(f) != null);
+      final available = m.files.every((f) => _fileInfo(m, f) != null);
       if (!available) {
         status[m.id] = ModelStatus(DlState.error, error: 'Variante no publicada todavía');
       } else if (status[m.id]?.state != DlState.downloading) {
@@ -325,14 +383,14 @@ class ModelManager extends ChangeNotifier {
     _cancel[m.id] = false;
     notifyListeners();
     try {
-      if (manifest == null) await fetchManifest();
-      final d = await dir();
+      if (manifests[m.release] == null) await fetchManifest();
+      final d = await dir(m.subdir);
       st.bytesTotal = sizeOf(m);
       var doneBefore = 0;
       final client = http.Client();
       try {
         for (final f in m.files) {
-          final info = _fileInfo(f);
+          final info = _fileInfo(m, f);
           if (info == null) throw Exception('El fichero $f no está en el catálogo.');
           final expSize = info['size'] as int;
           final target = File('${d.path}${Platform.pathSeparator}$f');
@@ -350,7 +408,7 @@ class ModelManager extends ChangeNotifier {
             have = 0;
           }
           if (have < expSize) {
-            final req = http.Request('GET', Uri.parse('$modelsRelease/$f'));
+            final req = http.Request('GET', Uri.parse('${m.release}/$f'));
             if (have > 0) req.headers['Range'] = 'bytes=$have-';
             final resp = await client.send(req);
             if (resp.statusCode == 200 && have > 0) {
@@ -395,7 +453,7 @@ class ModelManager extends ChangeNotifier {
         client.close();
       }
       status[m.id] = ModelStatus(DlState.installed, progress: 1);
-      activeId ??= m.id;
+      if (m.task == ModelTask.photo) activeId ??= m.id;
       await savePrefs();
     } on _Cancelled {
       status[m.id] = ModelStatus(DlState.notInstalled);
@@ -412,10 +470,10 @@ class ModelManager extends ChangeNotifier {
 
   /// Elimina una variante (los ficheros compartidos se conservan si otra los usa).
   Future<void> remove(ModelVariant m) async {
-    final d = await dir();
+    final d = await dir(m.subdir);
     final keep = <String>{};
     for (final o in catalog) {
-      if (o.id != m.id && status[o.id]?.state == DlState.installed) keep.addAll(o.files);
+      if (o.id != m.id && o.subdir == m.subdir && status[o.id]?.state == DlState.installed) keep.addAll(o.files);
     }
     for (final f in m.files) {
       if (keep.contains(f)) continue;
@@ -426,7 +484,7 @@ class ModelManager extends ChangeNotifier {
     }
     status[m.id] = ModelStatus(DlState.notInstalled);
     if (activeId == m.id) {
-      final inst = catalog.where((o) => status[o.id]!.state == DlState.installed).toList();
+      final inst = _photo.where((o) => status[o.id]!.state == DlState.installed).toList();
       activeId = inst.isEmpty ? null : inst.first.id;
     }
     await savePrefs();
@@ -461,6 +519,10 @@ class ModelManager extends ChangeNotifier {
   }
 
   bool get ready => active != null && status[active!.id]?.state == DlState.installed;
+
+  /// Lector OCR de planos.
+  ModelVariant get ocr => catalog.firstWhere((m) => m.task == ModelTask.plans);
+  bool get ocrReady => status[ocr.id]?.state == DlState.installed;
 }
 
 class _Cancelled implements Exception {}

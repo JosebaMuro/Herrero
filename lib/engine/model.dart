@@ -303,7 +303,8 @@ class PlatePiece {
     required this.qty,
     this.notes = '',
   });
-  double get unitKg => w * h * t * 7.85e-6;
+  double density = 7850; // kg/m³
+  double get unitKg => w * h * t * density * 1e-9;
   double get totalKg => unitKg * qty;
 }
 
@@ -323,9 +324,10 @@ class WeldSpec {
   final double throat; // garganta a (mm)
   final double lengthPerJoint; // mm de cordón por unión
   final int count; // nº de uniones iguales
-  final String process;
+  String process;
   final String position;
   final String notes;
+  double density = 7850; // kg/m³ del material de aportación
   WeldSpec({
     required this.joint,
     required this.type,
@@ -340,7 +342,7 @@ class WeldSpec {
   double get totalMeters => lengthPerJoint * count / 1000;
 
   /// Metal depositado (kg): sección del cordón en ángulo = a² (lado z = a√2)
-  double get depositedKg => throat * throat * lengthPerJoint * count * 7.85e-6;
+  double get depositedKg => throat * throat * lengthPerJoint * count * density * 1e-9;
 
   /// Consumible estimado (kg) considerando rendimiento ~65 %.
   double get consumableKg => depositedKg / 0.65;
@@ -364,6 +366,7 @@ class Piece {
   final double lengthMm;
   final int qty;
   final String cut;
+  final double density; // kg/m³ (las tablas están en acero, 7850)
   Piece({
     required this.mark,
     required this.description,
@@ -371,8 +374,9 @@ class Piece {
     required this.lengthMm,
     required this.qty,
     required this.cut,
+    this.density = 7850,
   });
-  double get unitKg => profile.kgm * lengthMm / 1000;
+  double get unitKg => profile.kgm * lengthMm / 1000 * density / 7850;
   double get totalKg => unitKg * qty;
   double get paintM2 => profile.paintAreaPerM * lengthMm / 1000 * qty;
 }
@@ -408,6 +412,9 @@ class StructureSpec {
   double pointLoad; // kN: carga concentrada / por nivel (depósito, polipasto, estantería)
   int levels; // niveles (estanterías, torres)
   String variant; // subtipo: corredera, abatible, chapa, malla, sobre pilares…
+  /// Perfil o familia impuesta por parte: {'pilares': 'HEB 220', 'correas': 'tubo'…}
+  Map<String, String> parts;
+  String cladding; // cerramiento lateral
   List<String> notes;
 
   StructureSpec({
@@ -428,8 +435,11 @@ class StructureSpec {
     this.pointLoad = 0,
     this.levels = 0,
     this.variant = '',
+    Map<String, String>? parts,
+    this.cladding = '',
     List<String>? notes,
-  }) : notes = notes ?? [];
+  })  : parts = parts ?? {},
+        notes = notes ?? [];
 }
 
 /// Resultado completo del diseño.

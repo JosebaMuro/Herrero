@@ -6,6 +6,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:printing/printing.dart';
 
 import '../engine/designer.dart';
+import '../engine/materials.dart';
 import '../engine/model.dart';
 import '../engine/parser.dart';
 import '../engine/profiles.dart';
@@ -306,6 +307,8 @@ class _SpecEditorState extends State<_SpecEditor> {
                 pointLoad: pointLabel != null ? (_p(_point) ?? base.pointLoad).clamp(0, 5000).toDouble() : base.pointLoad,
                 levels: showLevels ? (int.tryParse(_levels.text) ?? base.levels).clamp(1, 12) : base.levels,
                 variant: base.variant,
+                parts: Map.of(base.parts),
+                cladding: base.cladding,
                 notes: [],
               );
               Navigator.pop(context, s);
@@ -356,7 +359,7 @@ class _SummaryTab extends StatelessWidget {
       Text('"${d.prompt}"', style: TextStyle(fontStyle: FontStyle.italic, color: cs.onSurfaceVariant)),
       const SizedBox(height: 12),
       Wrap(spacing: 10, runSpacing: 10, children: [
-        _Kpi('Acero total', '${_n(d.steelKg, 0)} kg', Icons.scale),
+        _Kpi(metalLabel(s.grade), '${_n(d.steelKg, 0)} kg', Icons.scale),
         _Kpi('Ratio', '${_n(d.steelRatio.$1)} ${d.steelRatio.$2}', Icons.square_foot),
         _Kpi('Soldadura', '${_n(d.weldMeters)} m', Icons.local_fire_department),
         _Kpi('Consumible', '${_n(d.consumableKg)} kg', Icons.inventory_2_outlined),
@@ -390,6 +393,16 @@ class _SummaryTab extends StatelessWidget {
             if (s.liveLoad > 0)
               _kv('Uso', '${s.use}${s.use.isEmpty ? '' : ' · '}${_n(s.liveLoad, 2)} ${s.type == StructureType.barandilla ? 'kN/m' : 'kN/m²'}'),
             _kv('Acero / acabado', '${s.grade.name} · ${s.finish}'),
+          ]),
+        ),
+      ),
+      Card(
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('Materiales', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 6),
+            for (final (k, v) in materialRows(d)) _kv(k, v),
           ]),
         ),
       ),
