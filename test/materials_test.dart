@@ -3,6 +3,7 @@ import 'package:herrero/engine/designer.dart';
 import 'package:herrero/engine/model.dart';
 import 'package:herrero/engine/parser.dart';
 import 'package:herrero/engine/profiles.dart';
+import 'package:herrero/screens/home_screen.dart' show examples;
 
 void main() {
   test('marquesina de Joseba: panel sándwich, galvanizada', () {
@@ -64,5 +65,14 @@ void main() {
     final m = designFromPrompt('Marquesina de 6 x 5 m en acero corten');
     expect(m.spec.grade.kind, MaterialKind.weathering);
     expect(m.welds.every((w) => w.process.contains('Ni')), isTrue);
+  });
+
+  test('ejemplos de la pantalla de inicio', () {
+    for (final e in examples) {
+      final d = designFromPrompt(e);
+      expect(d.checks, isNotEmpty, reason: e);
+      // ignore: avoid_print
+      print('${d.spec.type.name.padRight(12)} ${d.spec.grade.name.padRight(8)} ${d.spec.finish.padRight(28)} ${d.spec.roofing.padRight(26)} ${d.spec.parts}  η=${d.maxUtilization.toStringAsFixed(2)}');
+    }
   });
 }

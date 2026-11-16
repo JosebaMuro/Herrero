@@ -2,15 +2,22 @@ import 'package:material_ui/material_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../engine/designer.dart';
+import 'catalog_screen.dart';
+import 'models_screen.dart';
+import 'plan_import_screen.dart';
 import 'project_screen.dart';
 
 const examples = [
   'Nave a dos aguas de 30 x 15 m, 6 m de altura al alero, pórticos cada 6 m, panel sándwich, en Vitoria',
-  'Marquesina para 2 coches de 5,5 x 5 m y 2,4 m de alto, chapa grecada, galvanizada',
+  'Marquesina para 2 coches de 5,5 x 5 m y 2,4 m de alto, panel sándwich, galvanizada',
+  'Nave de 20 x 12 m, 6 m al alero, pilares HEB 220, correas de tubo, tirantes de redondo 16, en S355',
+  'Escalera recta de 3 m de altura y 1 m de ancho con barandilla, peldaños de tramex, galvanizada',
+  'Pasarela de 8 m de luz y 1,5 m de ancho, suelo de chapa lagrimada',
+  'Pérgola de aluminio de 4 x 3 m con policarbonato celular de 16 mm',
   'Altillo de 8 x 4 m a 3 m de altura para almacén, suelo de tramex',
-  'Pérgola de 4 x 3 m sin cubierta, lacada en negro',
-  'Taller de 20 x 12 m, 5 m al alero, pendiente 15 %, en León',
-  'Entreplanta de oficinas de 12 x 9 m a 3,2 m, chapa colaborante',
+  'Cancela corredera de 5 m y 2 m de alto, lacada en negro',
+  'Barandilla de inox 316 de 12 m para terraza',
+  'Torre de 6 m para depósito de 5000 litros',
 ];
 
 class HomeScreen extends StatefulWidget {
@@ -82,12 +89,27 @@ class _HomeScreenState extends State<HomeScreen> {
         ]),
         actions: [
           IconButton(
+            tooltip: 'Importar plano (PDF o imagen)',
+            icon: const Icon(Icons.upload_file),
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const PlanImportScreen())),
+          ),
+          IconButton(
+            tooltip: 'Estructuras, materiales y vocabulario',
+            icon: const Icon(Icons.menu_book),
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const CatalogScreen())),
+          ),
+          IconButton(
+            tooltip: 'Modelos de IA locales',
+            icon: const Icon(Icons.download_for_offline_outlined),
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const ModelsScreen())),
+          ),
+          IconButton(
             tooltip: 'Acerca de',
             icon: const Icon(Icons.info_outline),
             onPressed: () => showAboutDialog(
               context: context,
               applicationName: 'Herrero',
-              applicationVersion: '1.0',
+              applicationVersion: '2.0',
               children: const [
                 Text('Predimensionado de estructuras metálicas según CTE DB-SE-A y Eurocódigo 3, '
                     'con despiece, soldaduras, planos de montaje y render.\n\n'
@@ -106,7 +128,7 @@ class _HomeScreenState extends State<HomeScreen> {
               children: [
                 Text('¿Qué estructura necesitas?', style: Theme.of(context).textTheme.headlineSmall),
                 const SizedBox(height: 4),
-                Text('Indica tipo, medidas (largo x ancho), altura, cubierta/uso y ubicación.',
+                Text('Indica tipo, medidas (largo x ancho), altura, cubierta/uso, material y ubicación. Puedes fijar perfiles por partes: «pilares HEB 220, correas de tubo».',
                     style: TextStyle(color: cs.onSurfaceVariant)),
                 const SizedBox(height: 12),
                 TextField(
@@ -128,6 +150,14 @@ class _HomeScreenState extends State<HomeScreen> {
                     padding: EdgeInsets.symmetric(vertical: 12),
                     child: Text('Calcular estructura', style: TextStyle(fontSize: 16)),
                   ),
+                ),
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  onPressed: _busy
+                      ? null
+                      : () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const PlanImportScreen())),
+                  icon: const Icon(Icons.upload_file),
+                  label: const Text('Importar plano (PDF o imagen)'),
                 ),
                 const SizedBox(height: 20),
                 Text('Ejemplos', style: Theme.of(context).textTheme.titleMedium),

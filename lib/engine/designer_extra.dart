@@ -1028,16 +1028,23 @@ Design _designCancela(StructureSpec s, String prompt) {
   final solidity = infill == 'chapa' ? 1.0 : (infill == 'malla' ? 0.3 : 0.25);
   final leafW = sliding ? open + 0.2 : (two ? open / 2 - 0.02 : open - 0.03);
   final nLeaves = sliding ? 1 : (two ? 2 : 1);
-  final frame = open > 3.5 || hgt > 2.2 ? rhsTable.firstWhere((p) => p.name == 'RHS 80x40x3') : rhsTable.firstWhere((p) => p.name == 'RHS 60x40x2');
+  final fw = 1.5 * s.wind * 1.7 * 1.2 * solidity * leafW * hgt; // kN por hoja
+  // Larguero intermedio: franja de h/2, biapoyado en los montantes; flexión
+  // respecto al eje débil (el canto mayor queda en el plano de la hoja).
+  final mW = fw * leafW / 16;
+  double wplz(SteelProfile p) => (p.h * p.b * p.b - (p.h - 2 * p.tw) * math.pow(p.b - 2 * p.tw, 2)) / 4 / 1000; // cm³
+  double etaW(SteelProfile p) => mW / (wplz(p) * fy / 1.05 / 1000);
+  final minH = open > 3.5 || hgt > 2.2 ? 80.0 : 60.0;
+  final frameCands = rhsTable.where((p) => p.h >= minH && p.b >= 40).toList()..sort((a, b) => a.kgm.compareTo(b.kgm));
+  final frame = frameCands.firstWhere((p) => etaW(p) <= _limit, orElse: () => frameCands.last);
   final bar = shsTable.first;
   // Peso de la hoja
   final perim = 2 * (leafW + hgt) + leafW; // + travesaño intermedio
   final nBars = infill == 'barrotes' ? (leafW / 0.12).floor() : 0;
   final kg = frame.kgm * perim + bar.kgm * nBars * (hgt - 0.1) + (infill == 'chapa' ? 11.8 * leafW * hgt : (infill == 'malla' ? 4 * leafW * hgt : 0));
   final gLeaf = kg * 9.81 / 1000; // kN
-  final fw = 1.5 * s.wind * 1.7 * 1.2 * solidity * leafW * hgt; // kN por hoja
-  checks.add(Check('Bastidor ${frame.name}', 'Viento sobre la hoja (largueros)',
-      (fw / hgt * 2 / 2) * leafW * leafW / 8 / _mRd(frame, fy), 'Fw = ${_f(fw, 2)} kN por hoja, hoja ${_f(leafW, 2)} x ${_f(hgt, 2)} m, ${_f(kg, 0)} kg'));
+  checks.add(Check('Bastidor ${frame.name}', 'Viento sobre la hoja (larguero intermedio, eje débil)',
+      etaW(frame), 'Fw = ${_f(fw, 2)} kN por hoja, MEd = ${_f(mW, 2)} kNm, hoja ${_f(leafW, 2)} x ${_f(hgt, 2)} m, ${_f(kg, 0)} kg'));
   final mPost = sliding ? fw / 2 * hgt : 1.35 * gLeaf * leafW / 2 + fw * hgt / 2;
   final post = _columnFor([...shsTable.where((p) => p.b >= 80), ...hebTable], sliding ? 'Pilar guía' : 'Pilar de cuelgue', 1.35 * gLeaf + 0.5,
       mPost, 2 * hgt, fy, checks);
