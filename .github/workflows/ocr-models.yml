@@ -1,0 +1,57 @@
+name: Modelos OCR (lectura de planos)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - scripts/prepare_ocr_models.py
+      - .github/workflows/ocr-models.yml
+
+permissions:
+  contents: write
+
+jobs:
+  ocr:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Descargar PP-OCRv4 (RapidOCR, Apache-2.0)
+        run: |
+          pip install --no-cache-dir "onnxruntime==1.20.1" "numpy<2.2" pillow
+          pip download --no-deps --only-binary=:all: "rapidocr_onnxruntime==1.4.4" -d wheels
+          python scripts/prepare_ocr_models.py wheels
+      - name: Verificar con ONNX Runtime 1.15 (el de la app)
+        run: |
+          pip install --no-cache-dir --force-reinstall "onnxruntime==1.15.1" "numpy<2"
+          python - <<'PY'
+          import glob, site, struct
+          for p in glob.glob(site.getsitepackages()[0] + "/onnxruntime/capi/*.so"):
+              with open(p, "r+b") as f:
+                  h = f.read(64)
+                  phoff = struct.unpack_from("<Q", h, 0x20)[0]
+                  phentsize, phnum = struct.unpack_from("<HH", h, 0x36)
+                  for i in range(phnum):
+                      off = phoff + i * phentsize
+                      f.seek(off)
+                      ptype, pflags = struct.unpack("<II", f.read(8))
+                      if ptype == 0x6474E551 and pflags & 1:
+                          f.seek(off + 4)
+                          f.write(struct.pack("<I", pflags & ~1))
+          PY
+          python scripts/prepare_ocr_models.py --verify
+      - name: Publicar en release de modelos OCR
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: models-ocr-v1
+          name: Modelos OCR – lectura de planos (v1)
+          target_commitish: ${{ github.sha }}
+          prerelease: true
+          make_latest: false
+          body: |
+            Lector de texto local para "Importar plano" de Herrero (descarga desde la app → Modelos IA).
+            PP-OCRv4 de PaddleOCR (licencia Apache-2.0), en formato ONNX tal como lo distribuye RapidOCR.
+          files: out_ocr/*
