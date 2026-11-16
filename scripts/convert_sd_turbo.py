@@ -72,107 +72,14 @@ def export(module, args, path, in_names, out_names, dyn):
     log(f"exportado {path}: {size_mb(path):.0f} MB")
 
 
-# ---------------------------------------------------------------- exportación
-log("Descargando y exportando componentes…")
-tok = CLIPTokenizer.from_pretrained(MODEL, subfolder="tokenizer")
-te = CLIPTextModel.from_pretrained(MODEL, subfolder="text_encoder").eval()
+VERIFY = '--verify' in sys.argv
+SCALE = 0.18215
 
-
-class TE(torch.nn.Module):
-    def __init__(self, m):
-        super().__init__()
-        self.m = m
-
-    def forward(self, input_ids):
-        return self.m(input_ids=input_ids)[0]
-
-
-export(TE(te), (torch.zeros(1, 77, dtype=torch.int64),), f"{RAW}/te/model.onnx",
-       ["input_ids"], ["last_hidden_state"], None)
-del te
-
-unet = UNet2DConditionModel.from_pretrained(MODEL, subfolder="unet").eval()
-
-
-class U(torch.nn.Module):
-    def __init__(self, m):
-        super().__init__()
-        self.m = m
-
-    def forward(self, sample, timestep, encoder_hidden_states):
-        return self.m(sample, timestep, encoder_hidden_states, return_dict=False)[0]
-
-
-export(U(unet), (torch.randn(1, 4, 64, 64), torch.tensor([999.0]), torch.randn(1, 77, 1024)),
-       f"{RAW}/unet/model.onnx", ["sample", "timestep", "encoder_hidden_states"], ["out_sample"],
-       {"sample": {2: "h", 3: "w"}, "out_sample": {2: "h", 3: "w"}})
-del unet
-
-vae = AutoencoderKL.from_pretrained(MODEL, subfolder="vae").eval()
-SCALE = float(vae.config.scaling_factor)
-
-
-class Enc(torch.nn.Module):
-    def __init__(self, m):
-        super().__init__()
-        self.m = m
-
-    def forward(self, sample):
-        return self.m.encode(sample).latent_dist.mean
-
-
-class Dec(torch.nn.Module):
-    def __init__(self, m):
-        super().__init__()
-        self.m = m
-
-    def forward(self, latent_sample):
-        return self.m.decode(latent_sample).sample
-
-
-export(Enc(vae), (torch.randn(1, 3, 512, 512),), f"{RAW}/vae_encoder/model.onnx", ["sample"],
-       ["latent_sample"], {"sample": {2: "H", 3: "W"}, "latent_sample": {2: "h", 3: "w"}})
-export(Dec(vae), (torch.randn(1, 4, 64, 64),), f"{RAW}/vae_decoder/model.onnx", ["latent_sample"],
-       ["sample"], {"latent_sample": {2: "h", 3: "w"}, "sample": {2: "H", 3: "W"}})
-del vae
-
-# ---------------------------------------------------------------- cuantización
-
-
-def single_file(src, dst):
-    m = onnx.load(src, load_external_data=True)
-    onnx.save_model(m, dst)
-    log(f"{dst}: {os.path.getsize(dst)/1e6:.0f} MB")
-
-
-def quant(src, dst, ops):
-    tmp = dst + ".tmp.onnx"
-    quantize_dynamic(src, tmp, weight_type=QuantType.QUInt8, op_types_to_quantize=ops,
-                     use_external_data_format=True, extra_options={"MatMulConstBOnly": True})
-    total = size_mb(tmp)
-    log(f"cuantizado {dst} ({ops}): {total:.0f} MB")
-    if total < 2000:
-        single_file(tmp, dst)
-        ok = True
-    else:
-        log(f"{dst} supera 2 GB, se descarta")
-        ok = False
-    for f in os.listdir(os.path.dirname(tmp) or "."):
-        if f.startswith(os.path.basename(tmp)):
-            os.remove(os.path.join(os.path.dirname(tmp) or ".", f))
-    return ok
-
-
-log("Cuantizando…")
-quant(f"{RAW}/te/model.onnx", f"{OUT}/sdturbo_text_encoder_int8.onnx", ["MatMul", "Gemm"])
-quant(f"{RAW}/unet/model.onnx", f"{OUT}/sdturbo_unet_int8.onnx", ["MatMul", "Gemm", "Conv"])
-has_mm = quant(f"{RAW}/unet/model.onnx", f"{OUT}/sdturbo_unet_int8mm.onnx", ["MatMul", "Gemm"])
-single_file(f"{RAW}/vae_encoder/model.onnx", f"{OUT}/sdturbo_vae_encoder.onnx")
-single_file(f"{RAW}/vae_decoder/model.onnx", f"{OUT}/sdturbo_vae_decoder.onnx")
-tok.save_pretrained(f"{RAW}/tok")
-shutil.copy(f"{RAW}/tok/vocab.json", f"{OUT}/vocab.json")
-shutil.copy(f"{RAW}/tok/merges.txt", f"{OUT}/merges.txt")
-shutil.rmtree(RAW)
+if not VERIFY:
+    exec(compile('# ---------------------------------------------------------------- exportación\nlog("Descargando y exportando componentes…")\ntok = CLIPTokenizer.from_pretrained(MODEL, subfolder="tokenizer")\nte = CLIPTextModel.from_pretrained(MODEL, subfolder="text_encoder").eval()\n\n\nclass TE(torch.nn.Module):\n    def __init__(self, m):\n        super().__init__()\n        self.m = m\n\n    def forward(self, input_ids):\n        return self.m(input_ids=input_ids)[0]\n\n\nexport(TE(te), (torch.zeros(1, 77, dtype=torch.int64),), f"{RAW}/te/model.onnx",\n       ["input_ids"], ["last_hidden_state"], None)\ndel te\n\nunet = UNet2DConditionModel.from_pretrained(MODEL, subfolder="unet").eval()\n\n\nclass U(torch.nn.Module):\n    def __init__(self, m):\n        super().__init__()\n        self.m = m\n\n    def forward(self, sample, timestep, encoder_hidden_states):\n        return self.m(sample, timestep, encoder_hidden_states, return_dict=False)[0]\n\n\nexport(U(unet), (torch.randn(1, 4, 64, 64), torch.tensor([999.0]), torch.randn(1, 77, 1024)),\n       f"{RAW}/unet/model.onnx", ["sample", "timestep", "encoder_hidden_states"], ["out_sample"],\n       {"sample": {2: "h", 3: "w"}, "out_sample": {2: "h", 3: "w"}})\ndel unet\n\nvae = AutoencoderKL.from_pretrained(MODEL, subfolder="vae").eval()\nSCALE = float(vae.config.scaling_factor)\n\n\nclass Enc(torch.nn.Module):\n    def __init__(self, m):\n        super().__init__()\n        self.m = m\n\n    def forward(self, sample):\n        return self.m.encode(sample).latent_dist.mean\n\n\nclass Dec(torch.nn.Module):\n    def __init__(self, m):\n        super().__init__()\n        self.m = m\n\n    def forward(self, latent_sample):\n        return self.m.decode(latent_sample).sample\n\n\nexport(Enc(vae), (torch.randn(1, 3, 512, 512),), f"{RAW}/vae_encoder/model.onnx", ["sample"],\n       ["latent_sample"], {"sample": {2: "H", 3: "W"}, "latent_sample": {2: "h", 3: "w"}})\nexport(Dec(vae), (torch.randn(1, 4, 64, 64),), f"{RAW}/vae_decoder/model.onnx", ["latent_sample"],\n       ["sample"], {"latent_sample": {2: "h", 3: "w"}, "sample": {2: "H", 3: "W"}})\ndel vae\n\n# ---------------------------------------------------------------- cuantización\n\n\ndef single_file(src, dst):\n    m = onnx.load(src, load_external_data=True)\n    # La app usa ONNX Runtime 1.15 (IR <= 9): fijamos IR 8\n    m.ir_version = min(m.ir_version, 8)\n    onnx.save_model(m, dst)\n    log(f"{dst}: {os.path.getsize(dst)/1e6:.0f} MB")\n\n\ndef quant(src, dst, ops):\n    tmp = dst + ".tmp.onnx"\n    quantize_dynamic(src, tmp, weight_type=QuantType.QUInt8, op_types_to_quantize=ops,\n                     use_external_data_format=True, extra_options={"MatMulConstBOnly": True})\n    total = size_mb(tmp)\n    log(f"cuantizado {dst} ({ops}): {total:.0f} MB")\n    if total < 2000:\n        single_file(tmp, dst)\n        ok = True\n    else:\n        log(f"{dst} supera 2 GB, se descarta")\n        ok = False\n    for f in os.listdir(os.path.dirname(tmp) or "."):\n        if f.startswith(os.path.basename(tmp)):\n            os.remove(os.path.join(os.path.dirname(tmp) or ".", f))\n    return ok\n\n\nlog("Cuantizando…")\nquant(f"{RAW}/te/model.onnx", f"{OUT}/sdturbo_text_encoder_int8.onnx", ["MatMul", "Gemm"])\nquant(f"{RAW}/unet/model.onnx", f"{OUT}/sdturbo_unet_int8.onnx", ["MatMul", "Gemm", "Conv"])\nhas_mm = quant(f"{RAW}/unet/model.onnx", f"{OUT}/sdturbo_unet_int8mm.onnx", ["MatMul", "Gemm"])\nsingle_file(f"{RAW}/vae_encoder/model.onnx", f"{OUT}/sdturbo_vae_encoder.onnx")\nsingle_file(f"{RAW}/vae_decoder/model.onnx", f"{OUT}/sdturbo_vae_decoder.onnx")\ntok.save_pretrained(f"{RAW}/tok")\nshutil.copy(f"{RAW}/tok/vocab.json", f"{OUT}/vocab.json")\nshutil.copy(f"{RAW}/tok/merges.txt", f"{OUT}/merges.txt")\nshutil.rmtree(RAW)\n\n', 'export', 'exec'))
+else:
+    tok = CLIPTokenizer.from_pretrained(MODEL, subfolder='tokenizer')
+    log('Verificación con onnxruntime', ort.__version__)
 
 # ---------------------------------------------------------------- pipeline de prueba
 # (idéntico al implementado en Dart: EulerDiscrete, trailing, sin CFG)
@@ -238,18 +145,21 @@ def run(prompt, unet_file, size=512, steps=1, init=None, strength=0.5, seed=0):
 PROMPT = ("professional architectural photograph of a galvanized steel portal frame warehouse "
           "structure under construction, steel I-beams, purlins, cross bracing, concrete slab, "
           "daylight, blue sky, realistic, sharp focus, 35mm")
+SUF = '_ort' + ort.__version__.replace('.', '') if VERIFY else ''
 ids, im = run(PROMPT, "sdturbo_unet_int8.onnx")
-im.save(f"{OUT}/sample_txt2img_int8.png")
+im.save(f"{OUT}/sample_txt2img_int8{SUF}.png")
 init = Image.open("scripts/sample_render.png")
 _, im = run(PROMPT, "sdturbo_unet_int8.onnx", steps=2, init=init, strength=0.5)
-im.save(f"{OUT}/sample_img2img_int8.png")
+im.save(f"{OUT}/sample_img2img_int8{SUF}.png")
 _, im = run(PROMPT, "sdturbo_unet_int8.onnx", size=384, steps=2, init=init, strength=0.5)
-im.save(f"{OUT}/sample_img2img_int8_384.png")
-if has_mm:
+im.save(f"{OUT}/sample_img2img_int8_384{SUF}.png")
+if os.path.exists(f"{OUT}/sdturbo_unet_int8mm.onnx"):
     _, im = run(PROMPT, "sdturbo_unet_int8mm.onnx", steps=2, init=init, strength=0.5)
-    im.save(f"{OUT}/sample_img2img_int8mm.png")
+    im.save(f"{OUT}/sample_img2img_int8mm{SUF}.png")
 
 # ---------------------------------------------------------------- manifiesto
+if VERIFY:
+    sys.exit(0)
 
 
 def sha(p):

@@ -29,6 +29,10 @@ jobs:
           pip install --no-cache-dir "diffusers==0.31.0" "transformers==4.46.3" "onnx==1.17.0" "onnxruntime==1.20.1" "numpy<2.2" pillow accelerate safetensors huggingface_hub
       - name: Convertir y probar
         run: python scripts/convert_sd_turbo.py
+      - name: Verificar con ONNX Runtime 1.15 (el de la app)
+        run: |
+          pip install --no-cache-dir --force-reinstall "onnxruntime==1.15.1" "numpy<2"
+          python scripts/convert_sd_turbo.py --verify
       - uses: actions/upload-artifact@v4
         with:
           name: muestras
