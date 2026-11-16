@@ -10,7 +10,6 @@ import '../ai/photo_prompt.dart';
 import '../ai/sd_pipeline.dart';
 import '../engine/model.dart';
 import '../services/export.dart';
-import '../views/drawing_utils.dart';
 import '../views/render_view.dart';
 import 'models_screen.dart';
 
@@ -91,13 +90,10 @@ class _AiPhotoScreenState extends State<AiPhotoScreen> {
 
   Future<void> _prepare() async {
     final size = mgr.size;
-    final mesh = SceneMesh.build(widget.d, widget.finish, roof: widget.roof);
-    final img = await paintToImage(
-        (c, s) => RenderPainter(mesh, widget.cam, sunAzimuth: widget.sun).paint(c, s),
-        Size(size.toDouble(), size.toDouble()),
-        1.0);
-    final rgba = await imageRgba(img);
+    final (rgba, img) = await renderHq(widget.d, widget.finish, widget.cam,
+        width: size, height: size, ss: 2, sun: widget.sun, roof: widget.roof);
     final bd = await img.toByteData(format: ui.ImageByteFormat.png);
+    img.dispose();
     if (!mounted) return;
     setState(() {
       _renderRgba = rgba;

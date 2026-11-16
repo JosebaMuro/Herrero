@@ -1,11 +1,14 @@
+import 'dart:async';
+import 'dart:isolate';
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
-import 'package:flutter/rendering.dart';
-
 import '../engine/model.dart';
 import '../engine/profiles.dart';
+import 'zbuffer.dart';
+
+export 'zbuffer.dart' show ZScene, ZView, renderZ;
 
 /// Acabado del acero en el render.
 enum Finish { galvanizado, pintadoGris, pintadoRojo, corten, negro, blanco, inox, aluminio }
@@ -94,8 +97,9 @@ class _Tri {
   final double spec;
   final double alpha;
   final bool castsShadow;
+  final int pattern;
   _Tri(this.a, this.b, this.c, this.albedo, this.spec,
-      {this.alpha = 1, this.castsShadow = true})
+      {this.alpha = 1, this.castsShadow = true, this.pattern = ZPattern.none})
       : n = (b - a).cross(c - a).normalized;
 }
 
@@ -147,17 +151,33 @@ class SceneMesh {
     if (roof) s._roof(d);
     for (final sf in d.surfaces) {
       if (!roof && sf.kind == SurfaceKind.roof) continue;
-      final (c, sp2, a) = _surfaceLook(sf.kind, d.spec.roofing, alb);
-      s._quad(sf.a, sf.b, sf.c, sf.d, c, sp2, alpha: a);
+      final (c, sp2, a, pat) = _surfaceLook(sf.kind, d.spec.roofing, alb);
+      s._quad(sf.a, sf.b, sf.c, sf.d, c, sp2, alpha: a, pattern: pat);
     }
     // Suelo de entreplanta
     if (d.spec.type == StructureType.entreplanta) {
       final x1 = d.frameX.last, y1 = d.gridY.last, z = d.spec.height;
-      final tramex = d.spec.roofing.contains('tramex');
-      s._quad(Vec3(0, 0, z + 0.01), Vec3(x1, 0, z + 0.01), Vec3(x1, y1, z + 0.01),
-          Vec3(0, y1, z + 0.01),
-          tramex ? const Vec3(0.55, 0.56, 0.58) : const Vec3(0.45, 0.43, 0.40), 0.2,
-          alpha: tramex ? 0.55 : 0.92);
+      final (c, sp2, a, pat) = _surfaceLook(SurfaceKind.floor, d.spec.roofing, alb);
+      s._quad(Vec3(0, 0, z + 0.01), Vec3(x1, 0, z + 0.01), Vec3(x1, y1, z + 0.01), Vec3(0, y1, z + 0.01), c, sp2,
+          alpha: a, pattern: pat);
+    }
+    // Cerramiento lateral de la nave: fachada trasera y hastial izquierdo
+    // (el resto se deja abierto para ver la estructura).
+    if (d.spec.cladding.isNotEmpty && d.spec.type == StructureType.nave && d.gridY.length > 1) {
+      final x1 = d.frameX.last, L = d.gridY.last, H = d.spec.height, rz = d.ridgeHeight;
+      final cl = d.spec.cladding;
+      final (Vec3 c, int pat) = cl.contains('bloque') || cl.contains('ladrillo')
+          ? (cl.contains('ladrillo') ? const Vec3(0.62, 0.36, 0.25) : const Vec3(0.70, 0.69, 0.66), ZPattern.concrete)
+          : (cl.contains('policarbonato')
+              ? (const Vec3(0.75, 0.82, 0.86), ZPattern.none)
+              : (cl.contains('sándwich') ? (const Vec3(0.84, 0.85, 0.86), ZPattern.sandwich) : (const Vec3(0.78, 0.79, 0.80), ZPattern.ribbed)));
+      final a = cl.contains('policarbonato') ? 0.45 : 1.0;
+      final off = 0.12;
+      s._quad(Vec3(0, L + off, 0), Vec3(x1, L + off, 0), Vec3(x1, L + off, H), Vec3(0, L + off, H), c, 0.25,
+          alpha: a, pattern: pat);
+      s._quad(Vec3(-off, 0, 0), Vec3(-off, L, 0), Vec3(-off, L, H), Vec3(-off, 0, H), c, 0.25, alpha: a, pattern: pat);
+      // piñón del hastial
+      s._tri(Vec3(-off, 0, H), Vec3(-off, L, H), Vec3(-off, L / 2, rz), c, 0.25, alpha: a, pattern: pat);
     }
     return s;
   }
@@ -176,13 +196,7 @@ class SceneMesh {
     final f = ax.cross(w).normalized;
     final p = m.profile;
     final h = p.h / 1000, b = p.b / 1000, tw = p.tw / 1000, tf = p.tf / 1000;
-    // segmentos cortos para un orden de pintado correcto
-    final nseg = math.max(1, (len / 1.5).ceil());
-    final seg = len / nseg;
-    for (var i = 0; i < nseg; i++) {
-      final mid = m.a + ax * (seg * (i + 0.5));
-      _section(p, mid, ax, f, w, seg, h, b, tw, tf, alb, sp, detailed);
-    }
+    _section(p, m.a + ax * (len / 2), ax, f, w, len, h, b, tw, tf, alb, sp, detailed);
   }
 
   void _section(SteelProfile p, Vec3 mid, Vec3 ax, Vec3 f, Vec3 w, double len, double h,
@@ -254,53 +268,84 @@ class SceneMesh {
   }
 
   void _quad(Vec3 a, Vec3 b, Vec3 c, Vec3 d, Vec3 alb, double sp,
-      {double alpha = 1}) {
-    // Subdivide en teselas de ~1 m para que el orden de pintado sea correcto
-    final nu = math.max(1, ((b - a).length / 1.0).ceil());
-    final nv = math.max(1, ((d - a).length / 1.0).ceil());
-    Vec3 at(double u, double v) {
-      final p1 = a + (b - a) * u;
-      final p2 = d + (c - d) * u;
-      return p1 + (p2 - p1) * v;
-    }
+      {double alpha = 1, int pattern = ZPattern.none}) {
+    tris.add(_Tri(a, b, c, alb, sp, alpha: alpha, castsShadow: alpha > 0.7, pattern: pattern));
+    tris.add(_Tri(a, c, d, alb, sp, alpha: alpha, castsShadow: alpha > 0.7, pattern: pattern));
+  }
 
-    for (var i = 0; i < nu; i++) {
-      for (var j = 0; j < nv; j++) {
-        final p00 = at(i / nu, j / nv), p10 = at((i + 1) / nu, j / nv);
-        final p11 = at((i + 1) / nu, (j + 1) / nv), p01 = at(i / nu, (j + 1) / nv);
-        // ondulación de chapa: leve variación de tono por franjas
-        final k = (i % 2 == 0) ? 1.0 : 0.96;
-        final al = alb * k;
-        tris.add(_Tri(p00, p10, p11, al, sp, alpha: alpha, castsShadow: alpha > 0.7));
-        tris.add(_Tri(p00, p11, p01, al, sp, alpha: alpha, castsShadow: alpha > 0.7));
-        tris.add(_Tri(p00, p11, p10, al, sp, alpha: alpha, castsShadow: false));
-        tris.add(_Tri(p00, p01, p11, al, sp, alpha: alpha, castsShadow: false));
-      }
+  void _tri(Vec3 a, Vec3 b, Vec3 c, Vec3 alb, double sp, {double alpha = 1, int pattern = ZPattern.none}) {
+    tris.add(_Tri(a, b, c, alb, sp, alpha: alpha, castsShadow: alpha > 0.7, pattern: pattern));
+  }
+
+  /// Empaqueta la malla para el rasterizador (listas tipadas, apto para isolate).
+  ZScene pack() {
+    final data = Float32List(tris.length * zStride);
+    var o = 0;
+    for (final t in tris) {
+      data
+        ..[o] = t.a.x
+        ..[o + 1] = t.a.y
+        ..[o + 2] = t.a.z
+        ..[o + 3] = t.b.x
+        ..[o + 4] = t.b.y
+        ..[o + 5] = t.b.z
+        ..[o + 6] = t.c.x
+        ..[o + 7] = t.c.y
+        ..[o + 8] = t.c.z
+        ..[o + 9] = t.n.x
+        ..[o + 10] = t.n.y
+        ..[o + 11] = t.n.z
+        ..[o + 12] = t.albedo.x
+        ..[o + 13] = t.albedo.y
+        ..[o + 14] = t.albedo.z
+        ..[o + 15] = t.spec
+        ..[o + 16] = t.alpha
+        ..[o + 17] = t.pattern.toDouble()
+        ..[o + 18] = t.castsShadow ? 1 : 0;
+      o += zStride;
+    }
+    return ZScene(data, tris.length, center.x, center.y, center.z, radius, tall);
+  }
+
+  /// Color, especular, alfa y patrón de cada tipo de superficie. Solo el
+  /// policarbonato, el vidrio y la malla dejan ver a través.
+  static (Vec3, double, double, int) _surfaceLook(SurfaceKind k, String roofing, Vec3 steel) {
+    switch (k) {
+      case SurfaceKind.roof:
+        return _roofLook(roofing);
+      case SurfaceKind.floor:
+        if (roofing.contains('tramex')) return (const Vec3(0.58, 0.59, 0.60), 0.3, 1, ZPattern.grating);
+        if (roofing.contains('lagrimada')) return (steel * 0.95, 0.35, 1, ZPattern.checker);
+        if (roofing.contains('tablero') || roofing.contains('madera')) {
+          return (const Vec3(0.62, 0.46, 0.30), 0.05, 1, ZPattern.wood);
+        }
+        if (roofing.contains('colaborante') || roofing.contains('hormig')) {
+          return (const Vec3(0.66, 0.65, 0.62), 0.05, 1, ZPattern.concrete);
+        }
+        return (const Vec3(0.45, 0.43, 0.40), 0.2, 1, ZPattern.none);
+      case SurfaceKind.grating:
+        return (const Vec3(0.58, 0.59, 0.60), 0.3, 1, ZPattern.grating);
+      case SurfaceKind.panel:
+        return (steel * 0.92, 0.3, 1, ZPattern.none);
+      case SurfaceKind.mesh:
+        return (steel * 0.85, 0.2, 0.35, ZPattern.none);
+      case SurfaceKind.glass:
+        return (const Vec3(0.70, 0.85, 0.88), 0.8, 0.30, ZPattern.none);
+      case SurfaceKind.wall:
+        return (const Vec3(0.74, 0.68, 0.60), 0.05, 1, ZPattern.concrete);
+      case SurfaceKind.wood:
+        return (const Vec3(0.62, 0.46, 0.30), 0.05, 1, ZPattern.wood);
     }
   }
 
-  static (Vec3, double, double) _surfaceLook(SurfaceKind k, String roofing, Vec3 steel) {
-    switch (k) {
-      case SurfaceKind.roof:
-        if (roofing.contains('policarbonato')) return (const Vec3(0.75, 0.82, 0.86), 0.4, 0.45);
-        if (roofing.contains('teja')) return (const Vec3(0.55, 0.25, 0.17), 0.1, 1);
-        if (roofing.contains('fotovolta')) return (const Vec3(0.08, 0.12, 0.25), 0.6, 1);
-        return (const Vec3(0.78, 0.79, 0.80), 0.3, 1);
-      case SurfaceKind.floor:
-        return (const Vec3(0.45, 0.43, 0.40), 0.2, 0.95);
-      case SurfaceKind.grating:
-        return (const Vec3(0.58, 0.59, 0.60), 0.3, 0.55);
-      case SurfaceKind.panel:
-        return (steel * 0.92, 0.3, 1);
-      case SurfaceKind.mesh:
-        return (steel * 0.85, 0.2, 0.35);
-      case SurfaceKind.glass:
-        return (const Vec3(0.70, 0.85, 0.88), 0.8, 0.30);
-      case SurfaceKind.wall:
-        return (const Vec3(0.74, 0.68, 0.60), 0.05, 1);
-      case SurfaceKind.wood:
-        return (const Vec3(0.62, 0.46, 0.30), 0.05, 1);
-    }
+  static (Vec3, double, double, int) _roofLook(String r) {
+    if (r.contains('policarbonato')) return (const Vec3(0.75, 0.82, 0.86), 0.4, 0.45, ZPattern.none);
+    if (r.contains('vidrio')) return (const Vec3(0.70, 0.85, 0.88), 0.8, 0.30, ZPattern.none);
+    if (r.contains('teja')) return (const Vec3(0.55, 0.25, 0.17), 0.1, 1, ZPattern.tile);
+    if (r.contains('fotovolta')) return (const Vec3(0.08, 0.12, 0.25), 0.6, 1, ZPattern.solar);
+    if (r.contains('sándwich') || r.contains('sandwich')) return (const Vec3(0.84, 0.85, 0.86), 0.3, 1, ZPattern.sandwich);
+    if (r.contains('fibrocemento')) return (const Vec3(0.70, 0.70, 0.68), 0.05, 1, ZPattern.ribbed);
+    return (const Vec3(0.78, 0.79, 0.80), 0.3, 1, ZPattern.ribbed);
   }
 
   void _roof(Design d) {
@@ -314,14 +359,7 @@ class SceneMesh {
     final xr = d.frameX.length > 2 ? d.frameX[(d.frameX.length / 2).floor()] : x1;
     final purl = d.members.where((m) => m.role == MemberRole.purlin).toList();
     final ph = purl.isEmpty ? 0.1 : purl.first.profile.h / 1000;
-    final color = r.contains('policarbonato')
-        ? const Vec3(0.75, 0.82, 0.86)
-        : (r.contains('teja')
-            ? const Vec3(0.55, 0.25, 0.17)
-            : (r.contains('fotovolta')
-                ? const Vec3(0.08, 0.12, 0.25)
-                : const Vec3(0.78, 0.79, 0.80)));
-    final alpha = r.contains('policarbonato') ? 0.45 : 1.0;
+    final (color, _, alpha, pat) = _roofLook(r);
     if (d.spec.type == StructureType.nave) {
       final L = d.gridY.last;
       final H = d.spec.height;
@@ -331,10 +369,10 @@ class SceneMesh {
       final up = Vec3(0, -(rz - H), L / 2).normalized * off;
       final upR = Vec3(0, (rz - H), L / 2).normalized * off;
       _quad(Vec3(-0.25, -0.3, H - 0.3 * (rz - H) / (L / 2)) + up, Vec3(xr, -0.3, H - 0.3 * (rz - H) / (L / 2)) + up,
-          Vec3(xr, L / 2, rz) + up, Vec3(-0.25, L / 2, rz) + up, color, 0.3, alpha: alpha);
+          Vec3(xr, L / 2, rz) + up, Vec3(-0.25, L / 2, rz) + up, color, 0.3, alpha: alpha, pattern: pat);
       _quad(Vec3(-0.25, L / 2, rz) + upR, Vec3(xr, L / 2, rz) + upR,
           Vec3(xr, L + 0.3, H - 0.3 * (rz - H) / (L / 2)) + upR,
-          Vec3(-0.25, L + 0.3, H - 0.3 * (rz - H) / (L / 2)) + upR, color, 0.3, alpha: alpha);
+          Vec3(-0.25, L + 0.3, H - 0.3 * (rz - H) / (L / 2)) + upR, color, 0.3, alpha: alpha, pattern: pat);
     } else {
       final w = d.gridY.last;
       final H = d.spec.height;
@@ -342,7 +380,7 @@ class SceneMesh {
       double z(double y) => H + drop * (1 - y / w) + ph + 0.03;
       _quad(Vec3(-0.15, -0.25, z(-0.25)), Vec3(x1 + 0.15, -0.25, z(-0.25)),
           Vec3(x1 + 0.15, w + 0.25, z(w + 0.25)), Vec3(-0.15, w + 0.25, z(w + 0.25)),
-          color, 0.3, alpha: alpha);
+          color, 0.3, alpha: alpha, pattern: pat);
     }
   }
 }
@@ -355,201 +393,39 @@ class OrbitCamera {
   OrbitCamera({this.yaw = -0.85, this.pitch = 0.32, this.distance = 2.3});
 }
 
-/// Pintor del render 3D con iluminación tipo "sol + cielo", sombras
-/// proyectadas, especular y niebla atmosférica.
-class RenderPainter extends CustomPainter {
-  final SceneMesh mesh;
-  final OrbitCamera cam;
-  final double sunAzimuth;
-  final int version;
-  RenderPainter(this.mesh, this.cam, {this.sunAzimuth = 0.9, this.version = 0});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final r = mesh.radius;
-    final target = mesh.center + Vec3(0, 0, mesh.tall ? 0 : -r * 0.08);
-    final eye = target +
-        Vec3(math.cos(cam.pitch) * math.cos(cam.yaw), math.cos(cam.pitch) * math.sin(cam.yaw),
-                math.sin(cam.pitch)) *
-            (r * cam.distance * (mesh.tall ? 1.2 : 1.0));
-    final fwd = (target - eye).normalized;
-    var right = fwd.cross(const Vec3(0, 0, 1)).normalized;
-    final up = right.cross(fwd).normalized;
-    final focal = size.height / (2 * math.tan(25 * math.pi / 180));
-    final cx = size.width / 2, cy = size.height / 2;
-
-    Offset? project(Vec3 p) {
-      final v = p - eye;
-      final z = v.dot(fwd);
-      if (z < 0.05) return null;
-      return Offset(cx + v.dot(right) * focal / z, cy - v.dot(up) * focal / z);
-    }
-
-    // Cielo
-    final horizonP = project(Vec3(target.x + fwd.x * 1e4, target.y + fwd.y * 1e4, 0));
-    final hy = (horizonP?.dy ?? size.height * 0.55).clamp(0.0, size.height);
-    canvas.drawRect(
-        Rect.fromLTWH(0, 0, size.width, hy),
-        Paint()
-          ..shader = ui.Gradient.linear(Offset.zero, Offset(0, hy), [
-            const Color(0xFF5B8FC7),
-            const Color(0xFFB9D3EA),
-            const Color(0xFFE8EEF2),
-          ], [
-            0,
-            0.75,
-            1
-          ]));
-    // Terreno
-    canvas.drawRect(
-        Rect.fromLTWH(0, hy, size.width, size.height - hy),
-        Paint()
-          ..shader = ui.Gradient.linear(Offset(0, hy), Offset(0, size.height), [
-            const Color(0xFFBDB8AC),
-            const Color(0xFF8E8A80),
-          ]));
-
-    final sun = Vec3(math.cos(sunAzimuth) * 0.55, math.sin(sunAzimuth) * 0.55, 0.78).normalized;
-    final sunCol = const Vec3(1.0, 0.95, 0.86);
-    final skyCol = const Vec3(0.55, 0.65, 0.78);
-    final groundCol = const Vec3(0.42, 0.40, 0.36);
-
-    // Solera (losa de hormigón) alrededor de la estructura
-    final slab = r * 1.25;
-    final sc = [
-      Vec3(mesh.center.x - slab, mesh.center.y - slab, 0),
-      Vec3(mesh.center.x + slab, mesh.center.y - slab, 0),
-      Vec3(mesh.center.x + slab, mesh.center.y + slab, 0),
-      Vec3(mesh.center.x - slab, mesh.center.y + slab, 0),
-    ].map(project).toList();
-    if (sc.every((e) => e != null)) {
-      final path = Path()..moveTo(sc[0]!.dx, sc[0]!.dy);
-      for (final p in sc.skip(1)) {
-        path.lineTo(p!.dx, p.dy);
-      }
-      path.close();
-      canvas.drawPath(path, Paint()..color = const Color(0xFFA7A49C));
-      // juntas de solera
-      final jp = Paint()
-        ..color = const Color(0x22000000)
-        ..strokeWidth = 0.7;
-      final step = math.max(2.0, (slab / 6).roundToDouble());
-      for (var t = -slab; t <= slab; t += step) {
-        final a = project(Vec3(mesh.center.x + t, mesh.center.y - slab, 0));
-        final b = project(Vec3(mesh.center.x + t, mesh.center.y + slab, 0));
-        final c = project(Vec3(mesh.center.x - slab, mesh.center.y + t, 0));
-        final d2 = project(Vec3(mesh.center.x + slab, mesh.center.y + t, 0));
-        if (a != null && b != null) canvas.drawLine(a, b, jp);
-        if (c != null && d2 != null) canvas.drawLine(c, d2, jp);
-      }
-    }
-
-    // Sombras proyectadas sobre el suelo (z = 0)
-    final shadowPos = <Offset>[];
-    for (final t in mesh.tris) {
-      if (!t.castsShadow || t.n.dot(sun) <= 0) continue;
-      final pts = <Offset>[];
-      for (final p in [t.a, t.b, t.c]) {
-        final k = p.z / sun.z;
-        final g = Vec3(p.x - sun.x * k, p.y - sun.y * k, 0.001);
-        final o = project(g);
-        if (o == null) break;
-        pts.add(o);
-      }
-      if (pts.length == 3) shadowPos.addAll(pts);
-    }
-    if (shadowPos.isNotEmpty) {
-      canvas.saveLayer(null, Paint()..color = const Color(0x66000000));
-      canvas.drawVertices(
-          ui.Vertices(ui.VertexMode.triangles, shadowPos),
-          BlendMode.srcOver,
-          Paint()..color = const Color(0xFF1B1A18));
-      canvas.restore();
-    }
-
-    // Triángulos visibles ordenados por profundidad (algoritmo del pintor)
-    final visible = <(double, _Tri)>[];
-    for (final t in mesh.tris) {
-      final cen = (t.a + t.b + t.c) * (1 / 3);
-      if (t.n.dot(eye - cen) <= 0) continue;
-      final z = (cen - eye).dot(fwd);
-      if (z < 0.1) continue;
-      visible.add((z, t));
-    }
-    visible.sort((a, b) => b.$1.compareTo(a.$1));
-
-    final pos = <Offset>[];
-    final cols = <Color>[];
-    final pos2 = <Offset>[];
-    final cols2 = <Color>[];
-    void flush() {
-      if (pos.isEmpty) return;
-      canvas.drawVertices(ui.Vertices(ui.VertexMode.triangles, List.of(pos), colors: List.of(cols)),
-          BlendMode.dst, Paint());
-      pos.clear();
-      cols.clear();
-    }
-
-    for (final (z, t) in visible) {
-      final pa = project(t.a), pb = project(t.b), pc = project(t.c);
-      if (pa == null || pb == null || pc == null) continue;
-      final n = t.n;
-      final ndl = math.max(0.0, n.dot(sun));
-      final cen = (t.a + t.b + t.c) * (1 / 3);
-      final vdir = (eye - cen).normalized;
-      final hlf = (sun + vdir).normalized;
-      final spec = math.pow(math.max(0.0, n.dot(hlf)), 40) * t.spec;
-      final hemi = 0.5 + 0.5 * n.z;
-      final amb = skyCol * hemi + groundCol * (1 - hemi);
-      // ambient occlusion aproximada cerca del suelo
-      final ao = 0.75 + 0.25 * math.min(1.0, cen.z / 1.5);
-      final fres = math.pow(1 - math.max(0.0, n.dot(vdir)), 4) * 0.25;
-      var c = Vec3(
-          t.albedo.x * (sunCol.x * ndl * 1.05 + amb.x * 0.55 * ao) + spec + fres * skyCol.x,
-          t.albedo.y * (sunCol.y * ndl * 1.05 + amb.y * 0.55 * ao) + spec + fres * skyCol.y,
-          t.albedo.z * (sunCol.z * ndl * 1.05 + amb.z * 0.55 * ao) + spec + fres * skyCol.z);
-      // niebla atmosférica
-      final fog = (1 - math.exp(-z / (r * 9))).clamp(0.0, 0.5);
-      c = c * (1 - fog) + const Vec3(0.85, 0.89, 0.93) * fog;
-      // tonemapping suave + gamma
-      Color toColor(Vec3 v, double a) {
-        int ch(double x) {
-          final m = x / (1 + x * 0.35);
-          return (math.pow(m.clamp(0.0, 1.0), 1 / 1.15) * 255).round();
-        }
-
-        return Color.fromARGB((a * 255).round(), ch(v.x), ch(v.y), ch(v.z));
-      }
-
-      final col = toColor(c, t.alpha);
-      if (t.alpha < 1) {
-        pos2.addAll([pa, pb, pc]);
-        cols2.addAll([col, col, col]);
-        continue;
-      }
-      pos.addAll([pa, pb, pc]);
-      cols.addAll([col, col, col]);
-      if (pos.length > 30000) flush();
-    }
-    flush();
-    if (pos2.isNotEmpty) {
-      canvas.drawVertices(ui.Vertices(ui.VertexMode.triangles, pos2, colors: cols2),
-          BlendMode.dst, Paint());
-    }
-    // viñeteado
-    canvas.drawRect(
-        Offset.zero & size,
-        Paint()
-          ..shader = ui.Gradient.radial(Offset(cx, cy), size.longestSide * 0.75,
-              [const Color(0x00000000), const Color(0x40000000)], [0.6, 1]));
-  }
-
-  @override
-  bool shouldRepaint(covariant RenderPainter old) => true;
-}
-
 /// Convierte una imagen a bytes RGBA.
 Future<Uint8List?> imageRgba(ui.Image img) async {
   final bd = await img.toByteData(format: ui.ImageByteFormat.rawRgba);
   return bd?.buffer.asUint8List();
+}
+
+/// Parámetros de vista del rasterizador a partir de la cámara orbital.
+ZView zViewFor(OrbitCamera cam, int w, int h, {double sun = 0.9, int ss = 1, bool fast = false}) => ZView(
+      width: w,
+      height: h,
+      ss: ss,
+      yaw: cam.yaw,
+      pitch: cam.pitch,
+      distance: cam.distance,
+      sunAzimuth: sun,
+      shadowRes: fast ? 768 : 1536,
+      softShadows: !fast,
+    );
+
+/// Convierte píxeles RGBA en una imagen.
+Future<ui.Image> rgbaToImage(Uint8List px, int w, int h) {
+  final c = Completer<ui.Image>();
+  ui.decodeImageFromPixels(px, w, h, ui.PixelFormat.rgba8888, c.complete);
+  return c.future;
+}
+
+/// Renderiza la escena con z-buffer en un isolate (no bloquea la interfaz).
+Future<Uint8List> renderRgba(ZScene scene, ZView view) => Isolate.run(() => renderZ(scene, view));
+
+/// Render de alta calidad listo para PDF o IA: devuelve (RGBA, imagen).
+Future<(Uint8List, ui.Image)> renderHq(Design d, Finish finish, OrbitCamera cam,
+    {int width = 1200, int height = 800, int ss = 2, double sun = 0.9, bool roof = true}) async {
+  final scene = SceneMesh.build(d, finish, roof: roof).pack();
+  final px = await renderRgba(scene, zViewFor(cam, width, height, sun: sun, ss: ss));
+  return (px, await rgbaToImage(px, width, height));
 }

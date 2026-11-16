@@ -25,11 +25,11 @@ Future<Uint8List> _png(ui.Image img) async {
 }
 
 Future<Uint8List> renderPng(Design d, Finish finish, OrbitCamera cam,
-    {Size size = const Size(1200, 800), double ratio = 1.5}) async {
-  final mesh = SceneMesh.build(d, finish);
-  final img = await paintToImage(
-      (c, s) => RenderPainter(mesh, cam).paint(c, s), size, ratio);
-  return _png(img);
+    {Size size = const Size(1200, 800), int ss = 2}) async {
+  final (_, img) = await renderHq(d, finish, cam, width: size.width.round(), height: size.height.round(), ss: ss);
+  final png = await _png(img);
+  img.dispose();
+  return png;
 }
 
 /// Carpeta de trabajo de la app (Documentos/Herrero).

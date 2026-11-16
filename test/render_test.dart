@@ -32,8 +32,10 @@ void main() {
       await tester.runAsync(() async {
         final d = designFromPrompt(e.value);
         final iso = await paintToImage((c, s) => IsoPainter(d).paint(c, s), const Size(900, 640), 1);
-        final mesh = SceneMesh.build(d, Finish.galvanizado);
-        final ren = await paintToImage((c, s) => RenderPainter(mesh, OrbitCamera()).paint(c, s), const Size(900, 600), 1);
+        final sw = Stopwatch()..start();
+        final (_, ren) = await renderHq(d, finishFromSpec(d.spec.finish), OrbitCamera(), width: 900, height: 600, ss: 1);
+        // ignore: avoid_print
+        print('${e.key}: render z-buffer 900x600 en ${sw.elapsedMilliseconds} ms');
         expect(iso.width, 900);
         expect(ren.width, 900);
         final sheets = <ui.Image>[];

@@ -15,6 +15,7 @@ import 'package:flutter/gestures.dart';
 import '../views/iso_view.dart';
 import '../views/plan_view.dart';
 import '../views/render_view.dart';
+import '../views/zrender_view.dart';
 import 'ai_photo_screen.dart';
 import 'models_screen.dart';
 
@@ -883,10 +884,7 @@ class _RenderTabState extends State<_RenderTab> {
             }),
             child: RepaintBoundary(
               key: _key,
-              child: CustomPaint(
-                painter: RenderPainter(mesh, cam, sunAzimuth: sun, version: _v),
-                size: Size.infinite,
-              ),
+              child: ZRenderView(mesh: mesh, cam: cam, sun: sun, version: _v),
             ),
           ),
         ),
