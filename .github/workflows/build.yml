@@ -79,15 +79,25 @@ jobs:
             Herrero-windows-portable.zip
 
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || contains(github.event.head_commit.message, '[release]')
     needs: [android, windows]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
+      - name: Versión
+        id: ver
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then echo "tag=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT;
+          else echo "tag=v$(grep '^version:' pubspec.yaml 2>/dev/null | cut -d' ' -f2 | cut -d+ -f1 || echo 1.0.0)-b${{ github.run_number }}" >> $GITHUB_OUTPUT; fi
       - uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: Herrero ${{ steps.ver.outputs.tag }}
+          target_commitish: ${{ github.sha }}
           files: dist/*
           generate_release_notes: true
+          make_latest: true
