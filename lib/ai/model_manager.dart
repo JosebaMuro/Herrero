@@ -1,11 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:ffi' as ffi;
 import 'dart:io';
 import 'dart:isolate';
 import 'dart:math' as math;
 
 import 'package:crypto/crypto.dart';
+import 'package:ffi/ffi.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
@@ -293,6 +296,8 @@ class DeviceProfile {
           '(Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory',
         ]);
         ram = double.parse((r.stdout as String).trim()) / 1024 / 1024 / 1024;
+      } else if (Platform.isIOS || Platform.isMacOS) {
+        ram = _appleMemoryGb();
       }
     } catch (_) {}
     double free = -1;
@@ -311,12 +316,29 @@ class DeviceProfile {
     } catch (_) {}
     final mobile = Platform.isAndroid || Platform.isIOS;
     return DeviceProfile(
-      Platform.isAndroid ? 'Android' : (Platform.isWindows ? 'Windows' : Platform.operatingSystem),
+      Platform.isAndroid ? 'Android' : (Platform.isWindows ? 'Windows' : (Platform.isIOS ? 'iOS' : Platform.operatingSystem)),
       mobile,
       ram,
       cores,
       free,
     );
+  }
+
+  /// Memoria física en iOS / macOS (sysctl hw.memsize).
+  static double _appleMemoryGb() {
+    final sysctl = ffi.DynamicLibrary.process().lookupFunction<
+        ffi.Int32 Function(ffi.Pointer<Utf8>, ffi.Pointer<ffi.Uint64>, ffi.Pointer<ffi.Size>, ffi.Pointer<ffi.Void>, ffi.Size),
+        int Function(ffi.Pointer<Utf8>, ffi.Pointer<ffi.Uint64>, ffi.Pointer<ffi.Size>, ffi.Pointer<ffi.Void>, int)>('sysctlbyname');
+    final name = 'hw.memsize'.toNativeUtf8();
+    final out = calloc<ffi.Uint64>();
+    final len = calloc<ffi.Size>()..value = 8;
+    try {
+      return sysctl(name, out, len, ffi.nullptr, 0) == 0 ? out.value / 1024 / 1024 / 1024 : 0;
+    } finally {
+      calloc.free(name);
+      calloc.free(out);
+      calloc.free(len);
+    }
   }
 
   /// Modelo recomendado (el más equilibrado para este equipo).
@@ -396,8 +418,17 @@ class ModelManager extends ChangeNotifier {
     final base = await getApplicationSupportDirectory();
     final d = Directory('${base.path}${Platform.pathSeparator}models${Platform.pathSeparator}$subdir');
     if (!d.existsSync()) d.createSync(recursive: true);
+    if (Platform.isIOS && !_backupExcluded) {
+      // en iPhone, los modelos (cientos de MB) fuera de la copia de iCloud
+      try {
+        await const MethodChannel('herrero/ios').invokeMethod('excludeFromBackup', '${base.path}/models');
+        _backupExcluded = true;
+      } catch (_) {}
+    }
     return d;
   }
+
+  bool _backupExcluded = false;
 
   static List<(String, String)> get _releases => {for (final m in catalog) m.release: m.subdir}.entries
       .map((e) => (e.key, e.value))

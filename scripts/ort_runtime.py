@@ -3,7 +3,10 @@ la versión 1.20 (misma API C, compatible hacia atrás), necesaria para los
 operadores del VLM (GroupQueryAttention, MultiHeadAttention…).
 
 Uso (después de `flutter pub get`):
-    python scripts/ort_runtime.py android|windows|linux
+    python scripts/ort_runtime.py android|windows|linux|ios
+
+En iOS no hay biblioteca que copiar: el paquete enlaza el pod
+`onnxruntime-objc` (estático) y aquí se cambia su versión en el podspec.
 """
 import io, json, os, shutil, sys, tarfile, urllib.request, zipfile
 
@@ -55,6 +58,15 @@ def main(platform):
         with t.extractfile(m) as src, open(dst, 'wb') as out:
             shutil.copyfileobj(src, out)
         print('  ->', dst, os.path.getsize(dst))
+    elif platform == 'ios':
+        spec = os.path.join(pkg, 'ios', 'onnxruntime.podspec')
+        text = open(spec, encoding='utf-8').read()
+        new = text.replace("'onnxruntime-objc', '1.15.1'", "'onnxruntime-objc', '1.20.0'")
+        new = new.replace("s.platform = :ios, '11.0'", "s.platform = :ios, '15.0'")
+        if "'onnxruntime-objc', '1.20.0'" not in new:
+            raise SystemExit('podspec de onnxruntime inesperado: ' + spec)
+        open(spec, 'w', encoding='utf-8').write(new)
+        print('  ->', spec, 'onnxruntime-objc 1.20.0')
     else:
         raise SystemExit(__doc__)
 

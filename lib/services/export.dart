@@ -56,13 +56,23 @@ String _slug(Design d) {
   return 'Herrero_${t}_${s.length.toStringAsFixed(0)}x${s.width.toStringAsFixed(0)}_${ts.year}${ts.month.toString().padLeft(2, '0')}${ts.day.toString().padLeft(2, '0')}_${ts.hour.toString().padLeft(2, '0')}${ts.minute.toString().padLeft(2, '0')}';
 }
 
+/// En iPad, el menú de compartir necesita un punto de anclaje en pantalla.
+ui.Rect? _shareOrigin() {
+  if (!Platform.isIOS) return null;
+  final views = ui.PlatformDispatcher.instance.views;
+  if (views.isEmpty) return null;
+  final v = views.first;
+  final size = v.physicalSize / v.devicePixelRatio;
+  return ui.Rect.fromCenter(center: ui.Offset(size.width / 2, size.height / 3), width: 2, height: 2);
+}
+
 /// Guarda bytes en la carpeta de la app y los comparte / abre.
 Future<String> saveAndShare(Uint8List bytes, String filename, {String? text}) async {
   final dir = await outputDir();
   final f = File('${dir.path}${Platform.pathSeparator}$filename');
   await f.writeAsBytes(bytes, flush: true);
   if (Platform.isAndroid || Platform.isIOS) {
-    await SharePlus.instance.share(ShareParams(files: [XFile(f.path)], text: text));
+    await SharePlus.instance.share(ShareParams(files: [XFile(f.path)], text: text, sharePositionOrigin: _shareOrigin()));
   } else if (Platform.isWindows) {
     await Process.run('explorer', ['/select,', f.path]);
   }
