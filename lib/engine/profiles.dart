@@ -1,7 +1,7 @@
 import 'dart:math' as math;
 
 /// Familia de perfil comercial.
-enum ProfileFamily { ipe, heb, shs, angle, upn, rhs, round }
+enum ProfileFamily { ipe, heb, shs, angle, upn, rhs, round, chs, flat }
 
 /// Perfil de acero laminado o conformado con sus propiedades mecánicas.
 /// Unidades: mm para dimensiones, cm² / cm⁴ / cm³ / cm para propiedades
@@ -54,14 +54,17 @@ class SteelProfile {
       case ProfileFamily.rhs:
         return (2 * h + 2 * b) / 1000;
       case ProfileFamily.round:
+      case ProfileFamily.chs:
         return math.pi * h / 1000;
+      case ProfileFamily.flat:
+        return 2 * (h + b) / 1000;
     }
   }
 
   /// Espesor mínimo de las chapas que forman el perfil (para soldadura).
   double get tMin => math.min(tw, tf);
 
-  bool get isHollow => family == ProfileFamily.shs || family == ProfileFamily.rhs;
+  bool get isHollow => family == ProfileFamily.shs || family == ProfileFamily.rhs || family == ProfileFamily.chs;
 
   @override
   String toString() => name;
@@ -292,6 +295,10 @@ List<SteelProfile> tableFor(ProfileFamily f) {
       return rhsTable;
     case ProfileFamily.round:
       return roundTable;
+    case ProfileFamily.chs:
+      return chsTable;
+    case ProfileFamily.flat:
+      return flatTable;
   }
 }
 
@@ -316,6 +323,55 @@ SteelProfile _rd(double d) {
 
 /// Redondos para tirantes (barra roscada en extremos).
 final List<SteelProfile> roundTable = [for (final d in [12.0, 14, 16, 20, 24, 27, 30]) _rd(d.toDouble())];
+
+/// Tubo redondo (CHS, EN 10219): pasamanos, mástiles y báculos.
+SteelProfile _chs(double d, double t) {
+  final di = d - 2 * t;
+  final a = math.pi / 4 * (d * d - di * di);
+  final i = math.pi / 64 * (math.pow(d, 4) - math.pow(di, 4));
+  return SteelProfile(
+    name: 'CHS ${d.toStringAsFixed(1).replaceAll('.0', '')}x${t.toStringAsFixed(1).replaceAll('.0', '')}',
+    family: ProfileFamily.chs,
+    h: d,
+    b: d,
+    tw: t,
+    tf: t,
+    area: a / 100,
+    iy: i / 1e4,
+    wply: (math.pow(d, 3) - math.pow(di, 3)) / 6 / 1e3,
+    iz: i / 1e4,
+    kgm: a * 7850 / 1e6,
+  );
+}
+
+final List<SteelProfile> chsTable = [
+  for (final (d, t) in const [
+    (33.7, 2.6), (42.4, 2.6), (48.3, 3.0), (60.3, 3.0), (76.1, 3.0), (88.9, 4.0), (101.6, 4.0),
+    (114.3, 4.0), (114.3, 5.0), (139.7, 5.0), (168.3, 5.0), (168.3, 6.3), (193.7, 6.3), (219.1, 6.3),
+  ])
+    _chs(d, t),
+];
+
+/// Pletina (llanta laminada): h = ancho, b = espesor.
+SteelProfile _flat(double w, double t) => SteelProfile(
+      name: 'Pletina ${w.toStringAsFixed(0)}x${t.toStringAsFixed(0)}',
+      family: ProfileFamily.flat,
+      h: w,
+      b: t,
+      tw: t,
+      tf: t,
+      area: w * t / 100,
+      iy: t * math.pow(w, 3) / 12 / 1e4,
+      wply: t * w * w / 4 / 1e3,
+      iz: w * math.pow(t, 3) / 12 / 1e4,
+      kgm: w * t * 7850 / 1e6,
+    );
+
+final List<SteelProfile> flatTable = [
+  for (final (w, t) in const [(30.0, 5.0), (40.0, 5.0), (40.0, 8.0), (50.0, 5.0), (50.0, 8.0), (50.0, 10.0),
+    (60.0, 8.0), (60.0, 10.0), (80.0, 10.0), (100.0, 10.0)])
+    _flat(w, t),
+];
 
 /// Todos los perfiles del catálogo.
 List<SteelProfile> get allProfiles => [for (final f in ProfileFamily.values) ...tableFor(f)];

@@ -1,5 +1,33 @@
 # Historial de versiones
 
+## 3.3.0
+
+- **Diccionario de castellano**: entiende la petición aunque venga con faltas («escalra», «varandilla»,
+  «canzela», «bentana», «yerro»), diminutivos («escalerita», «puertecita»), plurales, verbos y
+  regionalismos. Avisa de lo que ha corregido y nunca toca palabras corrientes («plazas», «cuadrilla»,
+  «cuatro»).
+- **Vocabulario del oficio ampliado**: escaleras (zanca, peldaño, huella, tabica, mamperlán, meseta,
+  descansillo), barandillas (pasamanos, balaustres, montantes, rodapié, guardacuerpos), rejas, vallas,
+  cancelas, pérgolas, porches, altillos y desvanes, con sinónimos y formas coloquiales.
+- Lo que se pide manda sobre el complemento: «escalera con barandilla» es una escalera y «plataforma
+  para depósito» una torre.
+- **Nuevas formas que la app calcula y dibuja**:
+  - Escalera **en L** y **en U** con meseta de giro, de **zanca central** (tubo con ménsulas) y **de
+    caracol** (mástil, peldaños en abanico, barandilla helicoidal y comprobaciones del CTE para uso
+    restringido).
+  - **Escala de gato** con jaula a partir de 3 m (EN ISO 14122-4).
+  - Barandillas de **vidrio**, **cables**, **chapa perforada**, **lamas** o barras, con **rodapié** en
+    zonas industriales, y aviso cuando el relleno es escalable.
+  - **Pasamanos a pared** con soportes y anclajes, y segundo pasamanos para accesibilidad.
+  - **Reja de ventana** con bastidor, barrotes a ≤ 10 cm y garras.
+  - Perfiles nuevos: tubo redondo (CHS) y pletinas.
+- En la ficha «Lo que he entendido» se elige la **forma** de la escalera, el **relleno** de la
+  barandilla o el tipo de valla o reja.
+- **Autocompletar** al escribir la petición: completa palabras y expresiones con tildes («escalera de
+  car…» → «escalera de caracol»), corrige la palabra mal escrita y propone lo que suele seguir según
+  la estructura.
+- Glosario ampliado con todos estos términos y sus sinónimos.
+
 ## 3.2.0
 
 - **iPhone y iPad** (iOS 15 o posterior): nuevo `Herrero-ios.ipa` sin firmar en cada versión. Se

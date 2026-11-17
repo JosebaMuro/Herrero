@@ -89,7 +89,7 @@ class _Rail {
 }
 
 _Rail _railing(List<Member> members, List<Check> checks, List<(Vec3, Vec3)> runs, double hr, double fy,
-    {double lineLoad = 0.8, double spacing = 1.5, bool bars = true}) {
+    {double lineLoad = 0.8, double spacing = 1.5, bool bars = true, SteelProfile? baluster, double barStep = 0.11}) {
   final r = _Rail();
   r.post = _choose(shsTable.where((p) => p.b >= 40).toList(), (p) {
     final med = 1.5 * lineLoad * spacing * hr;
@@ -99,7 +99,7 @@ _Rail _railing(List<Member> members, List<Check> checks, List<(Vec3, Vec3)> runs
     ];
   }, checks);
   final rail = shsTable.firstWhere((p) => p.b >= 40 && p.tw >= 2);
-  final bal = shsTable.first;
+  final bal = baluster ?? shsTable.first;
   for (final (a, b) in runs) {
     final d = b - a;
     final horiz = math.sqrt(d.x * d.x + d.y * d.y);
@@ -114,7 +114,7 @@ _Rail _railing(List<Member> members, List<Check> checks, List<(Vec3, Vec3)> runs
     members.add(Member(role: MemberRole.rail, profile: rail, a: a + Vec3(0, 0, 0.1), b: b + Vec3(0, 0, 0.1)));
     r.meters += d.length;
     if (bars) {
-      final nbal = (horiz / 0.11).floor();
+      final nbal = (horiz / barStep).floor();
       final seg = horiz / np;
       for (var k = 1; k < nbal; k++) {
         final xh = horiz * k / nbal;
@@ -151,6 +151,11 @@ String _warnValidate() =>
 // ---------------------------------------------------------------------------
 
 Design _designEscalera(StructureSpec s, String prompt) {
+  final form = stairForms.firstWhere((f) => s.variant.startsWith(f), orElse: () => 'recta');
+  if (form == 'caracol') return _designCaracol(s, prompt);
+  if (form == 'escala de gato') return _designEscalaGato(s, prompt);
+  final turn = form == 'en l' ? 90 : (form == 'en u' ? 180 : 0);
+  final central = form == 'zanca central';
   final g = s.grade, fy = g.fy;
   final hTot = s.height, w = s.width, q = s.liveLoad;
   final checks = <Check>[];
@@ -161,18 +166,21 @@ Design _designEscalera(StructureSpec s, String prompt) {
   final tramex = s.roofing.contains('tramex');
 
   // Peldañeado (CTE DB-SUA 1 §4.2): contrahuella 13–18,5 cm, huella ≥ 28 cm, 54 ≤ 2C + H ≤ 70 cm
-  final flights = math.max(1, (hTot / 3.2 - 1e-9).ceil());
+  final flights = math.max(turn > 0 ? 2 : 1, (hTot / 3.2 - 1e-9).ceil());
   var n = (hTot / 0.175).ceil();
   if (n % flights != 0) n += flights - n % flights;
   final c = hTot / n;
   final tr = (0.63 - 2 * c).clamp(0.28, 0.32).toDouble();
   final per = n ~/ flights;
-  final landing = math.max(1.0, w);
+  const gap = 0.2; // ojo de la escalera en U
+  final landing = turn == 90 ? w : math.max(1.0, w); // fondo de la meseta
+  final landW = turn == 180 ? 2 * w + gap : w; // ancho de la meseta
   final hf = per * c;
-  final runF = (per - 1) * tr;
+  final runF = math.max(0.01, (per - 1) * tr);
   final alpha = math.atan2(hf, runF);
   checks.add(Check('Peldañeado', 'Contrahuella ≤ 18,5 cm y 54 ≤ 2C + H ≤ 70 cm', c / 0.185,
-      '$n peldaños: C = ${_f(c * 100)} cm, H = ${_f(tr * 100)} cm, 2C + H = ${_f((2 * c + tr) * 100)} cm, ${flights > 1 ? '$flights tramos con meseta' : '1 tramo'}'));
+      '$n peldaños: C = ${_f(c * 100)} cm, H = ${_f(tr * 100)} cm, 2C + H = ${_f((2 * c + tr) * 100)} cm, '
+      '${flights > 1 ? '$flights tramos con meseta${turn > 0 ? ' de giro' : ''}' : '1 tramo'}'));
 
   // Peldaños (tramex o chapa lagrimada plegada): flexión con carga uniforme y puntual
   final qPoint = q >= 4 ? 4.0 : 2.0;
@@ -199,77 +207,128 @@ Design _designEscalera(StructureSpec s, String prompt) {
     treadName = o.$1;
     if (u <= _limit || o == treadOpts.last) {
       checks.add(Check(o.$1, 'Peldaño: uniforme ${_f(q, 0)} kN/m² y puntual ${_f(qPoint, 0)} kN', u,
-          'Vano ${_f(w, 2)} m, huella ${_f(tr * 100)} cm (sección resistente equivalente)'));
+          '${central ? 'Apoyado en ménsula a todo el ancho' : 'Vano ${_f(w, 2)} m'}, '
+          'huella ${_f(tr * 100)} cm (sección resistente equivalente)'));
       break;
     }
   }
 
-  // Zancas
+  // Zancas (dos laterales o una central de tubo, que además trabaja a torsión)
   final lh = runF + 0.3;
-  final cosA = math.cos(alpha);
+  final cosA = math.cos(alpha), sinA = math.sin(alpha);
   final li = lh / cosA;
-  final stringer = _choose([...upnTable.where((p) => p.h >= 120), ...rhsTable.where((p) => p.h >= 120)], (p) {
-    final qd = (1.35 * gTread + 1.5 * q) * w / 2 + 1.35 * (_self(p) / cosA + 0.15);
-    final qk = (gTread + q) * w / 2 + _self(p) / cosA + 0.15;
+  final share = central ? 1.0 : 0.5;
+  final stringer = _choose(
+      central
+          ? [...rhsTable.where((p) => p.h >= 150), ...shsTable.where((p) => p.b >= 150)]
+          : [...upnTable.where((p) => p.h >= 120), ...rhsTable.where((p) => p.h >= 120)], (p) {
+    final qd = (1.35 * gTread + 1.5 * q) * w * share + 1.35 * (_self(p) / cosA + 0.15);
+    final qk = (gTread + q) * w * share + _self(p) / cosA + 0.15;
     final med = qd * lh * lh / 8;
     final qPerp = qk * cosA * cosA;
     final defl = 5 * qPerp * math.pow(li * 1000, 4) / (384 * _youngE * p.iy * 1e4);
+    final am = (p.h - p.tw) * (p.b - p.tw); // área media de la sección cerrada (mm²)
+    final tRd = 2 * am * p.tw * fy / (math.sqrt(3) * gammaM0) / 1e6;
+    final tEd = 1.5 * q * (w / 2) * (w / 4) * lh / 2;
     return [
       Check('Zanca ${p.name}', 'Flexión ELU (proyección horizontal)', med / _mRd(p, fy),
           'qd = ${_f(qd, 2)} kN/m, Lh = ${_f(lh, 2)} m, inclinación ${_f(alpha * 180 / math.pi)}°, MEd = ${_f(med, 2)} kN·m'),
       Check('Zanca ${p.name}', 'Flecha ELS ≤ L/300', defl / (li * 1000 / 300), 'δ = ${_f(defl)} mm (L = ${_f(li, 2)} m)'),
+      if (central)
+        Check('Zanca ${p.name}', 'Torsión con sobrecarga en medio peldaño', tEd / tRd,
+            'TEd = ${_f(tEd, 2)} kN·m, TRd = ${_f(tRd, 1)} kN·m (sección cerrada)'),
     ];
   }, checks);
   final nose = angleTable.first;
-  final web = Vec3(-math.sin(alpha), 0, math.cos(alpha));
+  // Ménsula de peldaño en voladizo de w/2 a cada lado de la zanca central
+  final bracket = central
+      ? _choose([...flatTable.where((p) => p.h >= 60), ...rhsTable.where((p) => p.h <= 100)], (p) {
+          final med = 1.5 * qPoint * w / 2 + (1.35 * gTread + 1.5 * q) * tr * w * w / 8 + 1.35 * _self(p) * w * w / 8;
+          final defl = qPoint * 1000 * math.pow(w / 2 * 1000, 3) / (3 * _youngE * p.iy * 1e4);
+          return [
+            Check('Ménsula de peldaño ${p.name}', 'Voladizo ${_f(w / 2, 2)} m con ${_f(qPoint, 0)} kN en la punta', med / _mRd(p, fy),
+                'MEd = ${_f(med, 2)} kN·m'),
+            Check('Ménsula de peldaño ${p.name}', 'Flecha en punta ≤ L/150', defl / (w / 2 * 1000 / 150), 'δ = ${_f(defl)} mm'),
+          ];
+        }, checks)
+      : null;
 
-  // Geometría por tramos (en línea, con meseta intermedia)
+  // Geometría: cada tramo con su origen, dirección de subida (d) y sentido transversal (p).
+  // Recta: tramos en línea. En L: giro de 90° en meseta cuadrada. En U: giro de 180° con ojo.
+  var o = const Vec3(0, 0, 0);
+  var d = const Vec3(1, 0, 0), pv = const Vec3(0, 1, 0);
+  Vec3 at(double u, double v, double z) => Vec3(o.x + d.x * u + pv.x * v, o.y + d.y * u + pv.y * v, z);
   final frameX = <double>[0];
-  var x = 0.0, z = 0.0;
+  var z = 0.0;
   final railRuns = <(Vec3, Vec3)>[];
   final railSides = w >= 1.2 ? [0.0, w] : [w];
+  final lines = central ? [w / 2] : [0.0, w];
   final landingCols = <Vec3>[];
-  SteelProfile? landBeam;
+  final landings = <List<Vec3>>[];
+  final joist = landW > 1.6 ? rhsTable[6] : rhsTable[4];
+  final floorKind = tramex ? SurfaceKind.grating : SurfaceKind.floor;
   for (var f = 0; f < flights; f++) {
-    final x0 = x, z0 = z, x1 = x0 + runF, z1 = z0 + hf;
-    for (final y in [0.0, w]) {
-      members.add(Member(role: MemberRole.stringer, profile: stringer, a: Vec3(x0, y, z0), b: Vec3(x1, y, z1), webDir: web));
+    final z0 = z, z1 = z0 + hf;
+    final web = Vec3(-d.x * sinA, -d.y * sinA, cosA);
+    for (final v in lines) {
+      members.add(Member(role: MemberRole.stringer, profile: stringer, a: at(0, v, z0), b: at(runF, v, z1), webDir: web));
     }
     for (var k = 1; k < per; k++) {
       final zt = z0 + k * c;
-      final xa = x0 + (k - 1) * tr, xb = x0 + k * tr;
-      members.add(Member(role: MemberRole.tread, profile: nose, a: Vec3(xa, 0, zt), b: Vec3(xa, w, zt)));
-      surfaces.add(Surface(Vec3(xa, 0, zt), Vec3(xb, 0, zt), Vec3(xb, w, zt), Vec3(xa, w, zt),
-          tramex ? SurfaceKind.grating : SurfaceKind.floor));
+      final ua = (k - 1) * tr, ub = k * tr;
+      members.add(Member(role: MemberRole.tread, profile: nose, a: at(ua, 0, zt), b: at(ua, w, zt)));
+      if (bracket != null) {
+        final um = (ua + ub) / 2;
+        members.add(Member(role: MemberRole.bracket, profile: bracket, a: at(um, 0.02, zt - 0.03), b: at(um, w - 0.02, zt - 0.03)));
+      }
+      surfaces.add(Surface(at(ua, 0, zt), at(ub, 0, zt), at(ub, w, zt), at(ua, w, zt), floorKind));
     }
-    for (final y in railSides) {
-      railRuns.add((Vec3(x0, y, z0 + c), Vec3(x1, y, z1)));
+    for (final v in railSides) {
+      railRuns.add((at(0, v, z0 + c), at(runF, v, z1)));
     }
-    if (f == 0) footings.addAll([Vec3(0, 0, 0), Vec3(0, w, 0)]);
-    frameX.add(x1);
-    x = x1;
+    if (f == 0) footings.addAll([for (final v in lines) at(0, v, 0)]);
+    if (turn == 0) frameX.add(at(runF, 0, 0).x);
     z = z1;
-    if (f < flights - 1) {
-      // Meseta
-      final xe = x + landing;
-      landBeam = stringer;
-      for (final y in [0.0, w]) {
-        members.add(Member(role: MemberRole.beam, profile: stringer, a: Vec3(x, y, z), b: Vec3(xe, y, z)));
-        railRuns.add((Vec3(x, y == 0 && w < 1.2 ? w : y, z), Vec3(xe, y == 0 && w < 1.2 ? w : y, z)));
+    if (f == flights - 1) break;
+    // Meseta
+    final u0 = runF, u1 = runF + landing;
+    final cs = [at(u0, 0, z), at(u1, 0, z), at(u1, landW, z), at(u0, landW, z)];
+    for (final v in [0.0, landW]) {
+      members.add(Member(role: MemberRole.beam, profile: stringer, a: at(u0, v, z), b: at(u1, v, z)));
+    }
+    for (final u in [u0, u1]) {
+      members.add(Member(role: MemberRole.joist, profile: joist, a: at(u, 0, z), b: at(u, landW, z)));
+    }
+    landingCols.addAll(cs);
+    landings.add(cs);
+    surfaces.add(Surface(cs[0], cs[1], cs[2], cs[3], floorKind));
+    if (turn == 0) {
+      for (final v in railSides) {
+        railRuns.add((at(u0, v, z), at(u1, v, z)));
       }
-      for (final xx in [x, xe]) {
-        members.add(Member(role: MemberRole.joist, profile: rhsTable[4], a: Vec3(xx, 0, z), b: Vec3(xx, w, z)));
-        for (final y in [0.0, w]) {
-          landingCols.add(Vec3(xx, y, z));
-        }
+      frameX.add(at(u1, 0, 0).x);
+      o = at(u1, 0, 0);
+    } else if (turn == 90) {
+      if (w >= 1.2) {
+        railRuns.add((at(u0, 0, z), at(u1, 0, z)));
+        railRuns.add((at(u1, 0, z), at(u1, w, z)));
       }
-      surfaces.add(Surface(Vec3(x, 0, z), Vec3(xe, 0, z), Vec3(xe, w, z), Vec3(x, w, z),
-          tramex ? SurfaceKind.grating : SurfaceKind.floor));
-      x = xe;
-      frameX.add(x);
+      final no = at(u1, w, 0), nd = pv, np = d * -1;
+      o = no;
+      d = nd;
+      pv = np;
+    } else {
+      railRuns.add((at(u0, w, z), at(u0, w + gap, z))); // borde del ojo
+      if (w >= 1.2) {
+        railRuns.add((at(u0, 0, z), at(u1, 0, z)));
+        railRuns.add((at(u1, 0, z), at(u1, landW, z)));
+        railRuns.add((at(u1, landW, z), at(u0, landW, z)));
+      }
+      o = at(u0, landW, 0);
+      d = d * -1;
+      pv = pv * -1;
     }
   }
-  // dedup rail runs on landing when only one side
   final runs = <(Vec3, Vec3)>[];
   for (final r in railRuns) {
     if (!runs.any((o) => (o.$1 - r.$1).length < 1e-6 && (o.$2 - r.$2).length < 1e-6)) runs.add(r);
@@ -277,17 +336,19 @@ Design _designEscalera(StructureSpec s, String prompt) {
 
   SteelProfile? column;
   if (landingCols.isNotEmpty) {
-    final zl = landingCols.first.z;
-    final nEd = (1.35 * gTread + 1.5 * q) * (landing + runF) * w / 4 + 2;
+    final zl = landingCols.map((p) => p.z).reduce(math.max);
+    final nEd = (1.35 * gTread + 1.5 * q) * (landing * landW + runF * w) / 4 + 2;
     column = _columnFor([...shsTable.where((p) => p.b >= 60), ...hebTable], 'Pilar de meseta', nEd, 0, zl, fy, checks);
     final brace = _tieFor('Cruz de meseta', 0.02 * nEd * 4 * landing / zl + 1, fy, checks);
-    final xs = landingCols.map((e) => e.x).toSet().toList()..sort();
     for (final p in landingCols) {
-      members.add(Member(role: MemberRole.column, profile: column, a: Vec3(p.x, p.y, 0), b: Vec3(p.x, p.y, zl - (landBeam?.h ?? 0) / 1000)));
+      members.add(Member(role: MemberRole.column, profile: column, a: Vec3(p.x, p.y, 0), b: Vec3(p.x, p.y, p.z - stringer.h / 1000)));
       footings.add(Vec3(p.x, p.y, 0));
     }
-    for (final y in [0.0, w]) {
-      _cross(members, brace, Vec3(xs.first, y, 0.2), Vec3(xs.first, y, zl - 0.2), Vec3(xs.last, y, 0.2), Vec3(xs.last, y, zl - 0.2));
+    for (final cs in landings) {
+      final zc = cs.first.z;
+      for (final (a, b) in [(cs[0], cs[1]), (cs[3], cs[2])]) {
+        _cross(members, brace, Vec3(a.x, a.y, 0.2), Vec3(a.x, a.y, zc - 0.2), Vec3(b.x, b.y, 0.2), Vec3(b.x, b.y, zc - 0.2));
+      }
     }
   }
 
@@ -295,58 +356,77 @@ Design _designEscalera(StructureSpec s, String prompt) {
   final rail = _railing(members, checks, runs, hr, fy, lineLoad: q >= 4 ? 1.6 : 0.8, spacing: 1.2);
 
   final nTreads = (per - 1) * flights;
-  final pa = _basePlate(stringer, (1.35 * gTread + 1.5 * q) * lh * w / 4, 0, fy, checks, 'PA1', bolts: 2, minW: 160);
+  final nl = lines.length;
+  final pa = _basePlate(stringer, (1.35 * gTread + 1.5 * q) * lh * w * share / 2, 0, fy, checks, 'PA1', bolts: 2, minW: 160);
   final plates = <PlatePiece>[
-    PlatePiece(mark: 'PA1', description: 'Placa de apoyo inferior de zanca', w: pa.w, h: 160, t: pa.t, qty: 2,
+    PlatePiece(mark: 'PA1', description: 'Placa de apoyo inferior de zanca', w: pa.w, h: 160, t: pa.t, qty: nl,
         notes: '2 anclajes químicos ${pa.anchor}'),
     PlatePiece(mark: 'PT1', description: 'Chapa de cuelgue superior de zanca (a forjado/viga)', w: 200, h: _roundUp(stringer.h + 80, 10),
-        t: 10, qty: 2, notes: '4 anclajes químicos M12 o 4 M12 8.8 a viga'),
+        t: 10, qty: nl, notes: '4 anclajes químicos M12 o 4 M12 8.8 a viga'),
     PlatePiece(mark: 'PE', description: treadName, w: w * 1000 - 10, h: tr * 1000 + 30, t: tramex ? 3 : (treadName.contains('6 mm') ? 6 : (treadName.contains('5 mm') ? 5 : 4)),
         qty: nTreads, notes: tramex ? 'Galvanizado, con pisante antideslizante y cantoneras laterales' : 'Plegado en U, antideslizante'),
     if (landingCols.isNotEmpty)
       PlatePiece(mark: 'PA2', description: 'Placa base pilar de meseta ${column!.name}', w: 200, h: 200, t: 10,
           qty: landingCols.length, notes: '4 anclajes químicos M12'),
     if (landingCols.isNotEmpty)
-      PlatePiece(mark: 'ME', description: 'Suelo de meseta (${tramex ? 'tramex 30x30' : 'chapa lagrimada 5 mm'})', w: landing * 1000, h: w * 1000,
+      PlatePiece(mark: 'ME', description: 'Suelo de meseta (${tramex ? 'tramex 30x30' : 'chapa lagrimada 5 mm'})', w: landing * 1000, h: landW * 1000,
           t: tramex ? 3 : 5, qty: flights - 1),
   ];
   final bolts = <BoltItem>[
-    BoltItem('Anclaje inferior de zancas', '${pa.anchor} varilla 8.8 + resina epoxi', 4, 'PA1 sobre solera'),
-    BoltItem('Cuelgue superior', 'M12 anclaje químico / tornillo 8.8', 8, 'PT1'),
+    BoltItem('Anclaje inferior de zancas', '${pa.anchor} varilla 8.8 + resina epoxi', 2 * nl, 'PA1 sobre solera'),
+    BoltItem('Cuelgue superior', 'M12 anclaje químico / tornillo 8.8', 4 * nl, 'PT1'),
     BoltItem('Fijación de peldaños', tramex ? 'M10 x 30 8.8 + tuerca autoblocante' : 'Soldado (sin tornillería)', tramex ? nTreads * 4 : 0, 'Peldaño – zanca'),
     if (landingCols.isNotEmpty) BoltItem('Anclaje pilares de meseta', 'M12 varilla 8.8 + resina', landingCols.length * 4, 'PA2'),
   ];
   final welds = <WeldSpec>[
     WeldSpec(joint: 'Zanca – placas PA1 / PT1', type: 'En ángulo perimetral', throat: weldThroat(stringer.tMin, pa.t, g),
-        lengthPerJoint: 2 * (stringer.h + stringer.b), count: 4),
+        lengthPerJoint: 2 * (stringer.h + stringer.b), count: 2 * nl),
+    if (central)
+      WeldSpec(joint: 'Ménsula de peldaño – zanca central', type: 'En ángulo por ambos lados', throat: 5,
+          lengthPerJoint: 2 * stringer.b, count: nTreads),
     WeldSpec(joint: tramex ? 'Casquillo de peldaño – zanca' : 'Peldaño / soporte L – zanca', type: 'En ángulo', throat: 3,
-        lengthPerJoint: tramex ? 2 * 50 : 2 * (tr * 1000 * 0.6), count: nTreads * 2),
+        lengthPerJoint: tramex ? 2 * 50 : 2 * (tr * 1000 * 0.6), count: nTreads * (central ? 1 : 2)),
     if (landingCols.isNotEmpty)
       WeldSpec(joint: 'Pilar de meseta – placa base', type: 'En ángulo perimetral', throat: weldThroat(column!.tMin, 10, g),
           lengthPerJoint: 4 * column.b, count: landingCols.length),
     _railWeld(rail),
   ];
+  final formText = switch (form) {
+    'en l' => 'Escalera en L (dos tramos a 90° con meseta cuadrada en la esquina)',
+    'en u' => 'Escalera en U (ida y vuelta con meseta de giro y ojo de ${_f(gap * 100, 0)} cm)',
+    'zanca central' => 'Escalera de zanca central (una zanca de tubo con los peldaños en voladizo)',
+    _ => 'Escalera recta',
+  };
   final hyp = [
     ..._commonHypotheses(s),
-    'Escalera recta de ${_f(hTot, 2)} m de altura y ${_f(w, 2)} m de ancho: $n peldaños de ${_f(c * 100)} cm de contrahuella y ${_f(tr * 100)} cm de huella (CTE DB-SUA 1 §4.2.1).',
-    if (flights > 1) '$flights tramos de ≤ 3,20 m con meseta intermedia de ${_f(landing, 2)} m apoyada en ${landingCols.length} pilares.',
+    '$formText de ${_f(hTot, 2)} m de altura y ${_f(w, 2)} m de ancho: $n peldaños de ${_f(c * 100)} cm de contrahuella y ${_f(tr * 100)} cm de huella (CTE DB-SUA 1 §4.2.1).',
+    if (flights > 1)
+      '$flights tramos con meseta${turn > 0 ? ' de giro' : ' intermedia'} de ${_f(landing, 2)} x ${_f(landW, 2)} m apoyada en ${landingCols.length} pilares.',
     'Sobrecarga de uso ${_f(q, 0)} kN/m² (${s.use}) y carga puntual de ${_f(qPoint, 0)} kN en peldaño (DB-SE-AE tabla 3.1). Peso de peldaños ${_f(gTread, 2)} kN/m².',
-    'Zancas biapoyadas: apoyo inferior en solera y cuelgue superior en forjado o viga existente (comprobar su capacidad).',
+    if (central)
+      'Zanca central ${stringer.name} comprobada a flexión, flecha y torsión con la sobrecarga en medio peldaño; ménsulas ${bracket!.name} soldadas encima.'
+    else
+      'Zancas biapoyadas: apoyo inferior en solera y cuelgue superior en forjado o viga existente (comprobar su capacidad).',
     'Barandilla de ${_f(hr, 2)} m${w >= 1.2 ? ' a ambos lados' : ' en el lado libre'} medida desde la línea de peldaños; pasamanos continuo (DB-SUA 1 §4.2.4).',
-    if (w < 1.2) 'Se supone el lado y = 0 junto a muro; si está libre, añadir la misma barandilla.',
+    if (w < 1.2) turn > 0 ? 'Se supone el lado exterior de la escalera junto a muro; si está libre, añadir la misma barandilla.' : 'Se supone el lado y = 0 junto a muro; si está libre, añadir la misma barandilla.',
   ];
   final assembly = [
-    'Replanteo del arranque y del desembarco; comprobar la altura real entre acabados.',
-    'Fabricación en taller de las zancas con casquillos de peldaño soldados${tramex ? ' y taladros para tramex' : ''}.',
+    'Replanteo del arranque y del desembarco; comprobar la altura real entre acabados${turn > 0 ? ' y el hueco disponible en planta' : ''}.',
+    'Fabricación en taller de ${central ? 'la zanca central con las ménsulas de peldaño soldadas' : 'las zancas con casquillos de peldaño soldados'}${tramex ? ' y taladros para tramex' : ''}.',
     if (flights > 1) 'Montaje de los pilares y la meseta, aplomado y arriostrado.',
     'Presentación de zancas: anclaje inferior (PA1) y cuelgue superior (PT1).',
     'Colocación y fijación de peldaños de abajo hacia arriba.',
     'Montaje de barandilla por tramos; repaso de soldaduras y acabado (${s.finish}).',
   ];
   warnings.add(_warnValidate());
-  if (s.variant == 'exterior') warnings.add('Escalera exterior: galvanizado en caliente recomendado y peldaños antideslizantes con drenaje.');
+  if (s.variant.contains('exterior')) warnings.add('Escalera exterior: galvanizado en caliente recomendado y peldaños antideslizantes con drenaje.');
+  if (central && w > 1.2) warnings.add('Con zanca central y más de 1,20 m de ancho el voladizo del peldaño es grande: valora dos zancas.');
+  final xs = [for (final m in members) ...[m.a.x, m.b.x]];
+  final ys = [for (final m in members) ...[m.a.y, m.b.y]];
+  final x0 = xs.reduce(math.min), x1 = xs.reduce(math.max);
+  final y0 = ys.reduce(math.min), y1 = ys.reduce(math.max);
   return Design(
-    spec: s..length = x,
+    spec: s..length = x1 - x0,
     prompt: prompt,
     members: members,
     plates: plates,
@@ -358,8 +438,8 @@ Design _designEscalera(StructureSpec s, String prompt) {
     warnings: warnings,
     footings: footings,
     footingSize: 0,
-    frameX: frameX,
-    gridY: [0, w],
+    frameX: turn == 0 ? frameX : [x0, x1],
+    gridY: turn == 0 ? [0, w] : [y0, y1],
     ridgeHeight: hTot,
     surfaces: surfaces,
   );
@@ -483,54 +563,135 @@ Design _designPasarela(StructureSpec s, String prompt) {
 // ---------------------------------------------------------------------------
 
 Design _designBarandilla(StructureSpec s, String prompt) {
+  final t = normalize(prompt);
+  final form = railForms.firstWhere((f) => s.variant.startsWith(f), orElse: () => t.contains('vidrio') ? 'vidrio' : 'barrotes');
+  if (form == 'pasamanos a pared') return _designPasamanosPared(s, prompt);
+  final toe = s.variant.contains('rodapié');
   final g = s.grade, fy = g.fy;
   final lx = s.length, hr = s.height, ql = s.liveLoad;
   final checks = <Check>[];
   final warnings = <String>[...s.notes];
   final members = <Member>[];
-  final t = normalize(prompt);
+  final surfaces = <Surface>[];
   // Separación de montantes: la mayor (≤ 1,5 m) con montante de hasta SHS 60x4
-  var spacing = 1.5;
+  var spacing = form == 'vidrio' ? 1.2 : 1.5;
   while (spacing > 0.8) {
     final med = 1.5 * ql * spacing * hr;
     if (med / _mRd(shsTable.firstWhere((p) => p.name == 'SHS 60x4'), fy) <= _limit) break;
     spacing -= 0.1;
   }
+  final lamas = form == 'lamas';
   final rail = _railing(members, checks, [(const Vec3(0, 0, 0), Vec3(lx, 0, 0))], hr, fy,
-      lineLoad: ql, spacing: spacing, bars: !t.contains('vidrio'));
+      lineLoad: ql, spacing: spacing, bars: form == 'barrotes' || lamas,
+      baluster: lamas ? _flatNamed('Pletina 40x8') : null, barStep: lamas ? 0.10 : 0.11);
   final post = rail.post;
+  final postXs = [for (final m in members.where((m) => m.role == MemberRole.post)) m.a.x]..sort();
+  // Relleno entre montantes
+  var nFill = 0;
+  String fillText;
+  switch (form) {
+    case 'vidrio':
+      for (var i = 0; i < postXs.length - 1; i++) {
+        surfaces.add(Surface(Vec3(postXs[i] + 0.04, 0, 0.12), Vec3(postXs[i + 1] - 0.04, 0, 0.12), Vec3(postXs[i + 1] - 0.04, 0, hr - 0.06),
+            Vec3(postXs[i] + 0.04, 0, hr - 0.06), SurfaceKind.glass));
+      }
+      fillText = 'vidrio laminado 6+6 (o 8+8) con butiral, sujeto con pinzas al montante';
+      break;
+    case 'cables':
+    case 'barras horizontales':
+      final cable = form == 'cables';
+      final step = cable ? 0.08 : 0.10;
+      final n = ((hr - 0.25) / step).floor();
+      for (var k = 1; k <= n; k++) {
+        final z = 0.1 + k * step;
+        members.add(Member(role: MemberRole.rail, profile: cable ? _cable6 : roundTable.first, a: Vec3(0, 0, z), b: Vec3(lx, 0, z)));
+        nFill++;
+      }
+      fillText = cable
+          ? '$n cables inox Ø6 cada ${_f(step * 100, 0)} cm, con tensores en los extremos'
+          : '$n barras horizontales ${roundTable.first.name} cada ${_f(step * 100, 0)} cm';
+      if (cable) {
+        // montantes de extremo: tiro de los cables tensados (≈ 0,5 kN por cable)
+        final mEnd = 1.5 * 0.5 * n * (0.1 + (n + 1) * step / 2);
+        final endPost = _choose(shsTable.where((p) => p.b >= post.b).toList(), (p) => [
+              Check('Montante de extremo ${p.name}', 'Tiro de $n cables tensados (0,5 kN c/u)', mEnd / _mRd(p, fy),
+                  'MEd = ${_f(mEnd, 2)} kN·m en la base'),
+            ], checks);
+        for (final x in [postXs.first, postXs.last]) {
+          final i = members.indexWhere((m) => m.role == MemberRole.post && (m.a.x - x).abs() < 1e-6);
+          if (i >= 0) members[i] = Member(role: MemberRole.post, profile: endPost, a: members[i].a, b: members[i].b);
+        }
+      }
+      warnings.add('Relleno horizontal escalable: el CTE DB-SUA 1 §3.2.3 no lo admite donde pueda haber niños (vivienda, uso público, docente). '
+          'Ahí usa barrotes verticales, vidrio o chapa perforada.');
+      break;
+    case 'chapa perforada':
+      for (var i = 0; i < postXs.length - 1; i++) {
+        surfaces.add(Surface(Vec3(postXs[i] + 0.03, 0, 0.12), Vec3(postXs[i + 1] - 0.03, 0, 0.12), Vec3(postXs[i + 1] - 0.03, 0, hr - 0.05),
+            Vec3(postXs[i] + 0.03, 0, hr - 0.05), SurfaceKind.mesh));
+      }
+      fillText = 'chapa perforada de 2 mm (agujero ≤ 10 mm, no escalable) atornillada a marco de pletina';
+      break;
+    case 'lamas':
+      fillText = 'lamas verticales de pletina 40x8 con hueco ≤ 10 cm';
+      break;
+    default:
+      fillText = 'barrotes verticales con hueco libre ≤ 10 cm';
+  }
+  if (toe) {
+    members.add(Member(role: MemberRole.rail, profile: _toePlate, a: const Vec3(0, 0, 0.06), b: Vec3(lx, 0, 0.06), webDir: const Vec3(0, 0, 1)));
+  }
   final mBase = 1.5 * ql * spacing * hr;
   final lateral = RegExp(r'lateral|canto|frente de forjado').hasMatch(t);
   final pa = _basePlate(post, 0.5, mBase, fy, checks, 'PA1', minW: lateral ? 100 : 120);
   final handrail = members.firstWhere((m) => m.role == MemberRole.handrail).profile;
   checks.add(Check('Pasamanos ${handrail.name}', 'Flexión entre montantes (continuo)',
       1.5 * ql * spacing * spacing / 10 / _mRd(handrail, fy), 'MEd = ${_f(1.5 * ql * spacing * spacing / 10, 2)} kN·m'));
+  if (form == 'vidrio') {
+    checks.add(Check('Vidrio laminado 6+6', 'Empuje ${_f(ql, 1)} kN/m repartido al vidrio entre montantes', ql * spacing * hr / 6 / 2.5,
+        'Orientativo: comprobar con el fabricante (UNE-EN 12600, clase 2B2 mínimo)'));
+  }
   final footings = [for (final m in members.where((m) => m.role == MemberRole.post)) m.a];
+  final nPanels = postXs.length - 1;
   final plates = <PlatePiece>[
     PlatePiece(mark: 'PA1', description: lateral ? 'Pletina de anclaje lateral (al canto del forjado)' : 'Placa de anclaje de montante',
         w: pa.w, h: lateral ? 200 : pa.w, t: pa.t, qty: rail.posts, notes: '${lateral ? 2 : 4} anclajes químicos ${pa.anchor}'),
+    if (form == 'chapa perforada')
+      PlatePiece(mark: 'CP', description: 'Chapa perforada 2 mm R10 T15 (paño)', w: spacing * 1000 - 60, h: (hr - 0.17) * 1000, t: 2, qty: nPanels,
+          notes: 'Atornillada a pletinas soldadas a los montantes'),
   ];
   final bolts = <BoltItem>[
     BoltItem('Anclaje de montantes', '${pa.anchor} varilla 8.8 + resina epoxi', rail.posts * (lateral ? 2 : 4), 'PA1'),
     BoltItem('Tapones de tubo', 'Tapón de PVC / soldado', rail.posts + 2, 'Montantes y extremos'),
+    if (form == 'vidrio')
+      BoltItem('Vidrio laminado 6+6 butiral, ${_f(spacing - 0.08, 2)} x ${_f(hr - 0.18, 2)} m', 'Cantos pulidos (no es acero: aparte del peso)', nPanels, 'Paños entre montantes'),
+    if (form == 'vidrio') BoltItem('Pinzas de vidrio', 'Pinza inox AISI 316 para vidrio 12,76 mm', nPanels * 4, 'Vidrio – montante'),
+    if (form == 'cables') BoltItem('Tensores de cable', 'Terminal roscado + tensor inox M8', nFill * 2, 'Montantes de extremo'),
+    if (form == 'chapa perforada') BoltItem('Tornillería de paños', 'M6 inox avellanado', nPanels * 8, 'Chapa – marco'),
   ];
   final welds = <WeldSpec>[
     WeldSpec(joint: 'Montante – placa PA1', type: 'En ángulo perimetral', throat: weldThroat(post.tMin, pa.t, g),
         lengthPerJoint: 4 * post.b, count: rail.posts),
     _railWeld(rail),
+    if (toe) WeldSpec(joint: 'Rodapié – montantes', type: 'En ángulo', throat: 3, lengthPerJoint: 2 * 100, count: rail.posts),
   ];
   final hyp = [
     ..._commonHypotheses(s),
     'Barandilla de ${_f(lx, 2)} m y ${_f(hr, 2)} m de altura (CTE DB-SUA 1 §3.2: 0,90 m si la caída ≤ 6 m; 1,10 m si es mayor).',
     'Empuje horizontal ${_f(ql, 1)} kN/m en el pasamanos (${s.use}, DB-SE-AE 3.2.1). Montantes cada ${_f(spacing, 2)} m.',
-    if (!t.contains('vidrio')) 'Barrotes verticales con hueco libre ≤ 10 cm y sin elementos escalables entre 30 y 50 cm de altura.',
-    if (t.contains('vidrio')) 'Relleno de vidrio laminado (no calculado): seguir UNE-EN 12600 / CTE DB-SUA 2 con perfil de pinza homologado.',
+    'Relleno: $fillText.',
+    if (form == 'barrotes' || lamas) 'Sin elementos escalables entre 30 y 50 cm de altura.',
+    if (form == 'vidrio') 'Vidrio no calculado en detalle: seguir UNE-EN 12600 / CTE DB-SUA 2 con perfil de pinza homologado.',
+    if (toe) 'Rodapié de pletina 100x5 a ras de suelo (EN ISO 14122-3 en zonas industriales; evita la caída de objetos).',
     'Anclaje ${lateral ? 'lateral al canto del forjado' : 'sobre losa'}: el soporte debe ser hormigón sano de ≥ 15 cm.',
   ];
   final assembly = [
     'Replanteo de montantes cada ${_f(spacing, 2)} m.',
-    'Fabricación por tramos de ≤ 3 m en taller (montantes, pasamanos, larguero y barrotes).',
+    'Fabricación por tramos de ≤ 3 m en taller (montantes, pasamanos, larguero${form == 'barrotes' || lamas ? ' y barrotes' : ''}${toe ? ', rodapié' : ''}).',
     'Taladro, limpieza y anclaje químico de placas; aplomado.',
+    if (form == 'vidrio') 'Colocación de pinzas y vidrios con calzos de neopreno; sellado.',
+    if (form == 'cables') 'Pasar y tensar los cables desde los montantes de extremo; repaso de tensión a las 48 h.',
+    if (form == 'chapa perforada') 'Atornillado de los paños de chapa perforada.',
     'Unión entre tramos y remates; acabado (${s.finish}).',
   ];
   warnings.add(_warnValidate());
@@ -550,6 +711,7 @@ Design _designBarandilla(StructureSpec s, String prompt) {
     frameX: [0, lx],
     gridY: const [0, 0.15],
     ridgeHeight: hr,
+    surfaces: surfaces,
   );
 }
 
@@ -1156,6 +1318,7 @@ Design _designCancela(StructureSpec s, String prompt) {
 // ---------------------------------------------------------------------------
 
 Design _designValla(StructureSpec s, String prompt) {
+  if (s.variant.startsWith('reja')) return _designReja(s, prompt);
   final g = s.grade, fy = g.fy;
   final lx = s.length, hgt = s.height;
   final checks = <Check>[];

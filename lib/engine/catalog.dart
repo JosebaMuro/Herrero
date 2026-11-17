@@ -53,7 +53,7 @@ const typologies = <Typology>[
       'parking': 7, 'aparcamiento': 7, 'tejavana': 10, 'sombraje': 10, 'toldo': 6, 'techado': 5,
       'tejadillo': 8, 'cubierta': 2, 'tejado': 3, 'voladizo': 4, 'cenador': 9, 'gazebo': 9,
       'terraza cubierta': 8, 'cubierta de terraza': 8, 'sombra': 3, 'parasol': 6, 'cubierta solar': 8,
-      'pergola fotovoltaica': 10, 'marquesina solar': 10, 'leñero': 8, 'lenero': 8, 'porche de entrada': 10,
+      'pergola fotovoltaica': 10, 'marquesina solar': 10, 'pergola bioclimatica': 10, 'leñero': 8, 'lenero': 8, 'porche de entrada': 10,
     },
     computes: ['Correas (tubo) y cubierta', 'Vigas principales y de borde', 'Pilares en ménsula (tubo) con jabalcones',
       'Placas de anclaje y zapatas'],
@@ -67,7 +67,7 @@ const typologies = <Typology>[
         'plataformas técnicas, con barandilla perimetral.',
     keywords: {
       'altillo': 10, 'entreplanta': 10, 'entre planta': 10, 'forjado': 7, 'plataforma': 6, 'mezzanine': 10,
-      'altell': 10, 'tarima elevada': 9, 'piso intermedio': 10, 'doble altura': 6, 'buhardilla': 6,
+      'altell': 10, 'tarima elevada': 9, 'desvan': 6, 'piso intermedio': 10, 'doble altura': 6, 'buhardilla': 6,
       'sobrado': 8, 'planta intermedia': 10, 'plataforma de almacenaje': 10, 'forjado metalico': 10,
       'suelo elevado': 7, 'plataforma tecnica': 9,
     },
@@ -78,16 +78,17 @@ const typologies = <Typology>[
   ),
   Typology(
     type: StructureType.escalera,
-    description: 'Escalera recta de zancas metálicas con peldaños de chapa o tramex, meseta intermedia '
-        'cuando la altura lo exige y barandilla.',
+    description: 'Escalera de zancas metálicas con peldaños de chapa o tramex: recta, en L o en U con meseta, '
+        'de zanca central, de caracol (mástil central) y escala de gato con aros.',
     keywords: {
-      'escalera': 10, 'escaleras': 10, 'escalinata': 10, 'peldaños': 7, 'peldanos': 7, 'zanca': 9, 'zancas': 9,
-      'escalera de caracol': 10, 'caracol': 6, 'escalera de incendios': 10, 'escalera de emergencia': 10,
-      'escala': 5, 'escala de gato': 10, 'escalera exterior': 10, 'escalera de acceso': 10,
+      'escalera': 10, 'escaleras': 10, 'escalinata': 10, 'peldaños': 7, 'peldanos': 7, 'peldano': 7, 'zanca': 9,
+      'zancas': 9, 'escalera de caracol': 10, 'caracol': 6, 'escalera de incendios': 10, 'escalera de emergencia': 10,
+      'escala': 5, 'escala de gato': 10, 'escalera exterior': 10, 'escalera de acceso': 10, 'escalera en l': 10,
+      'escalera en u': 10, 'escalera de zanca central': 10, 'contrahuella': 6, 'mamperlan': 6,
     },
-    computes: ['Número de peldaños, huella y contrahuella (CTE DB-SUA)', 'Zancas (UPN / tubo rectangular)',
-      'Apoyos de peldaño y meseta', 'Barandilla y pasamanos', 'Placas de apoyo y soldaduras'],
-    data: 'Altura a salvar, ancho de paso, uso (vivienda, público, industrial), acabado.',
+    computes: ['Número de peldaños, huella y contrahuella (CTE DB-SUA)', 'Zancas (UPN / tubo rectangular) o mástil central',
+      'Apoyos de peldaño y meseta', 'Barandilla y pasamanos', 'Aros de protección (escala de gato)', 'Placas de apoyo y soldaduras'],
+    data: 'Altura a salvar, ancho de paso, forma (recta, en L, en U, caracol, escala de gato), uso, acabado.',
     example: 'Escalera metálica de 3,2 m de altura y 1 m de ancho con barandilla, galvanizada',
     norm: 'CTE DB-SUA 1 §4, DB-SE-AE, EC3',
   ),
@@ -107,14 +108,16 @@ const typologies = <Typology>[
   ),
   Typology(
     type: StructureType.barandilla,
-    description: 'Barandilla o antepecho de protección: montantes con placa de anclaje, pasamanos, '
-        'larguero inferior y barrotes verticales no escalables.',
+    description: 'Barandilla o antepecho de protección (montantes, pasamanos, larguero y relleno de barrotes, '
+        'vidrio, cables, chapa perforada o lamas, con rodapié si se pide) y pasamanos a pared sobre soportes.',
     keywords: {
-      'barandilla': 10, 'barandillas': 10, 'baranda': 10, 'antepecho': 10, 'pasamanos': 7, 'quitamiedos': 9,
-      'guardacuerpos': 10, 'barandilla de escalera': 10, 'barandilla de vidrio': 10, 'peto': 6, 'proteccion de borde': 9, 'barandal': 10,
+      'barandilla': 10, 'barandillas': 10, 'baranda': 10, 'antepecho': 10, 'pasamanos': 9, 'quitamiedos': 9,
+      'guardacuerpos': 10, 'barandilla de escalera': 10, 'barandilla de vidrio': 10, 'peto': 6, 'proteccion de borde': 9,
+      'barandal': 10, 'pasamanos a pared': 10, 'pasamanos de escalera': 10, 'rodapie': 5, 'barrotes': 3,
     },
-    computes: ['Montantes (tubo) y separación', 'Pasamanos y largueros', 'Barrotes cada ≤ 10 cm', 'Placas y anclajes'],
-    data: 'Longitud, altura (0,9 / 1,1 m), uso (vivienda, público), anclaje (sobre losa o lateral).',
+    computes: ['Montantes (tubo) y separación', 'Pasamanos y largueros', 'Relleno: barrotes cada ≤ 10 cm, vidrio, cables, chapa',
+      'Rodapié', 'Pasamanos a pared: tubo redondo y soportes', 'Placas y anclajes'],
+    data: 'Longitud, altura (0,9 / 1,1 m), relleno, uso (vivienda, público), anclaje (sobre losa o lateral).',
     example: 'Barandilla de 15 m de largo y 1,1 m de altura para terraza pública, lacada en negro',
     norm: 'CTE DB-SUA 1 §3.2, DB-SE-AE §3.2',
   ),
@@ -176,9 +179,10 @@ const typologies = <Typology>[
   ),
   Typology(
     type: StructureType.valla,
-    description: 'Valla o cerramiento de parcela: postes anclados, largueros y relleno de barrotes, chapa o malla.',
+    description: 'Valla o cerramiento de parcela (postes anclados, largueros y relleno de barrotes, chapa o malla) '
+        'y reja de ventana (bastidor y barrotes con garras al muro).',
     keywords: {
-      'valla': 10, 'vallado': 10, 'cerramiento': 4, 'cerca': 7, 'reja': 8, 'rejas': 8, 'enrejado': 9,
+      'valla': 10, 'vallado': 10, 'cerramiento': 4, 'cerca': 7, 'reja': 8, 'rejas': 8, 'enrejado': 9, 'reja de ventana': 10,
       'cerramiento de parcela': 10, 'malla de simple torsion': 9, 'malla electrosoldada': 7, 'muro de chapa': 8, 'empalizada': 8,
     },
     computes: ['Postes en ménsula por viento', 'Largueros', 'Barrotes / chapa / malla', 'Placas y anclajes'],
@@ -218,10 +222,6 @@ Typology typologyOf(StructureType t) => typologies.firstWhere((e) => e.type == t
 
 /// Peticiones que no tienen tipología propia: se proponen con la más parecida.
 const unsupportedHints = <String, (StructureType, String)>{
-  'caracol': (StructureType.escalera,
-      'Escalera de caracol: se predimensiona como escalera recta equivalente. La helicoidal (mástil central y peldaños en voladizo) requiere cálculo específico.'),
-  'escala de gato': (StructureType.escalera,
-      'Escala fija vertical: no se calcula como tal (EN ISO 14122-4, con aros de protección > 3 m). Se propone una escalera de zancas.'),
   'puente grua': (StructureType.portico,
       'Puente grúa sobre carriles: fuera de alcance (EN 1993-6). Se predimensiona un pórtico de elevación con la misma carga.'),
   'invernadero': (StructureType.nave,

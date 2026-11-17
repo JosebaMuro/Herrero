@@ -1,10 +1,10 @@
 import 'dart:convert';
 import 'dart:math' as math;
 
-import 'catalog.dart';
 import 'model.dart';
 import 'parser.dart';
 import 'reasoning.dart';
+import 'spanish.dart';
 import 'vocabulary.dart';
 
 /// De dónde sale cada dato de la ficha de interpretación.
@@ -168,21 +168,7 @@ const _purposes = <(String, StructureType)>[
 /// de la palabra (0 si no hay).
 (StructureType?, int) ruleType(String prompt) {
   final t = canonicalize(normalize(prompt));
-  StructureType? best;
-  var bestScore = -1.0, weight = 0, at = 1 << 30;
-  for (final ty in typologies) {
-    for (final e in ty.keywords.entries) {
-      final m = RegExp('(?<![a-z])${RegExp.escape(e.key)}(?![a-z])').firstMatch(t);
-      if (m == null) continue;
-      final score = e.value * 1000.0 + e.key.length * 10 - m.start * 0.5;
-      if (score > bestScore) {
-        bestScore = score;
-        best = ty.type;
-        weight = e.value;
-        at = m.start;
-      }
-    }
-  }
+  final (best, weight, at) = keywordType(t);
   for (final (re, ty) in _purposes) {
     final m = RegExp(re).firstMatch(t);
     // la finalidad manda si lo nombrado va detrás (es su complemento) o no hay nada
@@ -206,6 +192,7 @@ String fieldPhrase(String field, Object value) {
     'use' => 'uso $value',
     'liveLoad' => 'sobrecarga ${m(value)} kg/m2',
     'levels' => '${m(value)} niveles',
+    'variant' => 'variante $value',
     _ => '$value',
   };
 }
@@ -228,6 +215,8 @@ Understanding understand(String prompt,
     Map<String, Object> overrides = const {}}) {
   final notes = <String>[];
   final text = spellNumbers(prompt);
+  final fixes = spanishNote(normalize(prompt));
+  if (fixes != null) notes.add(fixes);
   final (rType, rWeight) = ruleType(text);
   final eType = ranking.isEmpty ? null : ranking.first.$1;
   final eMargin = ranking.length > 1 ? ranking[0].$2 - ranking[1].$2 : 1.0;
@@ -271,9 +260,10 @@ Understanding understand(String prompt,
         'use' => orig.use != base.use,
         'liveLoad' => orig.liveLoad != base.liveLoad,
         'levels' => orig.levels != base.levels && RegExp(r'\d+\s*(niveles|alturas|baldas|estantes|pisos|plantas|tramos)').hasMatch(text),
+        'variant' => orig.variant != base.variant,
         _ => false,
       };
-  const fields = ['length', 'width', 'height', 'roofing', 'cladding', 'grade', 'finish', 'city', 'use', 'liveLoad', 'levels'];
+  const fields = ['length', 'width', 'height', 'roofing', 'cladding', 'grade', 'finish', 'city', 'use', 'liveLoad', 'levels', 'variant'];
   for (final f in fields) {
     if (fromText(f)) src[f] = DataSource.text;
   }
@@ -350,4 +340,5 @@ const _fieldName = {
   'use': 'uso',
   'liveLoad': 'sobrecarga',
   'levels': 'niveles',
+  'variant': 'forma',
 };

@@ -46,6 +46,8 @@ Color roleColor(MemberRole r) {
       return const Color(0xFF4E342E);
     case MemberRole.rail:
       return const Color(0xFF2E7D32);
+    case MemberRole.bracket:
+      return const Color(0xFFEF6C00);
   }
 }
 

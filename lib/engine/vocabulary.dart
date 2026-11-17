@@ -5,6 +5,8 @@
 ///  2. [glossary] es el diccionario que se muestra en la app.
 library;
 
+import 'spanish.dart';
+
 class TradeTerm {
   final String term;
   final String meaning;
@@ -59,7 +61,72 @@ const List<(String, String)> _termRules = [
   ('separacion entre ejes|distancia entre ejes|entre ejes', 'intereje'),
   ('altura de cumbrera|altura a cumbrera|altura en cumbrera|altura maxima en cumbrera', 'cumbrera'),
   // --- Tipologías y elementos --------------------------------------------
-  ('escalera caracol|escalera helicoidal', 'escalera de caracol'),
+  // escaleras
+  (
+    'escalera (?:en |de )?(?:espiral|helicoidal|circular)|escalera caracol|escalera de caracola|escala de caragol|'
+        'escalera de cargol',
+    'escalera de caracol',
+  ),
+  (
+    'escalera (?:en|de) (?:l|ele|escuadra|angulo)|escalera de cuarto de vuelta|escalera con (?:un )?giro de 90(?: grados)?|'
+        'escalera de (?:dos|2) tramos en l|escalera con (?:un )?giro(?! de 180)',
+    'escalera en l',
+  ),
+  (
+    'escalera (?:en|de) (?:u|ida y vuelta)|escalera de (?:media|1/2) vuelta|escalera con (?:un )?giro de 180(?: grados)?|'
+        'escalera imperial|escalera de (?:dos|2) tramos paralelos',
+    'escalera en u',
+  ),
+  (
+    'escaleras? marineras?|escalas? marineras?|escaleras? de gato|escaleras? verticales?|escalas? verticales?|'
+        'escaleras? de pates|escalas? de pates|escalas? fijas?|escaleras? de mano fijas?|escaleras? de bomberos|'
+        'escalerillas? verticales?',
+    'escala de gato',
+  ),
+  (
+    'escalera (?:de|con) (?:una )?zanca central|escalera de espina(?: de pez| central)?|escalera de viga central|'
+        'escalera (?:volada|flotante|en voladizo)|escalera de peldanos volados|peldanos volados',
+    'escalera de zanca central',
+  ),
+  ('eskailera|escaleira|escalerilla(?! vertical)', 'escalera'),
+  ('contra ?huellas?|contra-huellas?|tabicas?', 'contrahuella'),
+  ('mamperlan(?:es)?|bocel(?:es)?|narices de peldano|cantoneras? de peldano', 'mamperlan'),
+  // barandillas y pasamanos
+  (
+    'asideros?|agarraderos?|barras? de apoyo|barras? de sujecion|pasamanos (?:de|a la|a|en la|en|sobre la|anclados? a la|'
+        'fijados? a la|sujetos? a la|adosados? a la) (?:pared|muro|paramento)|pasamanos murale?s?|pasamanos adosados?',
+    'pasamanos a pared',
+  ),
+  ('pasamano(?!s)|pasamans|passama|pasa manos|pasa-manos', 'pasamanos'),
+  ('barana|baranes|varandas?|barandela', 'barandilla'),
+  ('guarda ?cuerpos', 'guardacuerpos'),
+  ('balaustr(?:e|o|illo)s?', 'barrotes'),
+  ('pilastras?', 'montantes'),
+  ('zocalos?|rodapies|guarda ?pies|plinto|chapa de pie|pletina de pie|tope de pie', 'rodapie'),
+  ('cristal(?:es)?|acristalad[ao]s?|vidrios', 'vidrio'),
+  ('cables? de acero|cables? inox(?:idable)?|cables? tensados?|sirgas?|tensores', 'cables'),
+  (
+    'chapa (?:micro)?perforada|chapa troquelada|deploye|metal desplegado|metal expandido|chapa desplegada',
+    'chapa perforada',
+  ),
+  ('barrotes horizontales|travesanos horizontales|barras horizontales|tubos horizontales', 'barras horizontales'),
+  // rejas, puertas y vallas
+  (
+    'rejas? (?:de|para|en) (?:la |las |una |el |los |mis |mi )?(?:ventanas?|balcon(?:es)?|huecos? de ventana)|'
+        'rejas? de seguridad|rejas? antirrobo|rejas? de forja|protecci?on(?:es)? (?:de|para) (?:las |la )?ventanas?|'
+        'enrejados? de ventanas?|rejeria',
+    'reja de ventana',
+  ),
+  ('batientes?|practicables?', 'abatible'),
+  ('corredizas?|deslizantes?|correderas', 'corredera'),
+  ('cierre perimetral|cerramiento perimetral|tapias? metalicas?|cerca metalica|tanca', 'cerramiento de parcela'),
+  ('mallas? (?:de )?hercules|paneles? rigidos?|mallas? rigidas?|mallas? de panel', 'malla electrosoldada'),
+  ('mallas? (?:de )?(?:gallinero|ganadera|cinegetica|anudada|de alambre|metalica)', 'malla de simple torsion'),
+  // pérgolas, porches y altillos
+  ('glorietas?', 'cenador'),
+  ('soportal(?:es)?', 'porche'),
+  ('viseras?|tejadillo de entrada|cubre ?puertas?|guardapolvos?', 'tejadillo'),
+  ('tabanco|sobrao|soberao|desvan|piso de arriba', 'altillo'),
   ('palets?|paletas?|palles', 'pales'),
   ('diferencial(?:es)? electric[oa]s?|tecles?|aparejo electrico', 'polipasto'),
   ('jacenas?', 'viga'),
@@ -71,7 +138,8 @@ const List<(String, String)> _termRules = [
   ('alambrada|cercado|cerco perimetral|vallado perimetral', 'valla'),
   ('pretil(?:es)?|balaustrada|barandado|barandal(?:es)?', 'barandilla'),
   ('astas?(?: de bandera)?', 'mastil'),
-  ('escalones', 'peldanos'),
+  ('escalones|escaloncitos', 'peldanos'),
+  ('escalon', 'peldano'),
   ('descansillo|rellano', 'meseta'),
   ('pasadizo|pasillo volado', 'pasarela'),
   ('emparrado|parral', 'pergola'),
@@ -140,7 +208,7 @@ String _expand(String rep, Match m) => rep.replaceAllMapped(RegExp(r'\$(\d)'), (
 
 /// Reescribe el texto normalizado con el vocabulario canónico.
 String canonicalize(String t) {
-  var s = t;
+  var s = fixSpanish(t);
   final words = _numbers.keys.join('|');
   // "cinco mil litros" / "5 mil kg"
   s = s.replaceAllMapped(RegExp('(?<![a-z])($words)\\s+mil(?![a-z])'), (m) => '${_numbers[m[1]!]! * 1000}');
@@ -383,6 +451,12 @@ const List<TradeTerm> glossary = [
   TradeTerm('Tope', 'Cerrajería y herrajes', 'Pieza que limita el recorrido de la hoja.'),
   TradeTerm('Pilar de cuelgue', 'Cerrajería y herrajes', 'Poste del que cuelga la hoja abatible.'),
   TradeTerm(
+    'Reja de ventana',
+    'Cerrajería y herrajes',
+    'Enrejado fijo o abatible que protege un hueco: bastidor de pletina, barrotes con hueco ≤ 10–12 cm y garras empotradas en la mocheta.',
+    ['rejería', 'reja de forja', 'reja de seguridad'],
+  ),
+  TradeTerm(
     'Malla electrosoldada / simple torsión',
     'Cerrajería y herrajes',
     'Rellenos de valla: paneles rígidos soldados o malla de alambre trenzado.',
@@ -455,9 +529,59 @@ const List<TradeTerm> glossary = [
   TradeTerm(
     'Barandilla no escalable',
     'Escaleras y barandillas',
-    'Sin puntos de apoyo entre 0,20 y 0,70 m y huecos < 10 cm (CTE DB-SUA 1).',
+    'Sin puntos de apoyo entre 30 y 50 cm de altura, sin salientes de más de 5 cm entre 50 y 80 cm y sin huecos por los que pase una esfera de 10 cm (CTE DB-SUA 1 §3.2.3).',
   ),
-  TradeTerm('Escala de gato', 'Escaleras y barandillas', 'Escalera vertical fija con aros (EN ISO 14122-4).'),
+  TradeTerm('Peldaño', 'Escaleras y barandillas', 'Cada escalón: huella (donde se pisa) y contrahuella (altura).', ['escalón', 'grada']),
+  TradeTerm('Mamperlán', 'Escaleras y barandillas', 'Canto o nariz reforzada de la huella, a menudo antideslizante.', ['nariz', 'cantonera de peldaño']),
+  TradeTerm(
+    'Escalera en L / en U',
+    'Escaleras y barandillas',
+    'Dos tramos con meseta de giro a 90° (L) o a 180° (U, ida y vuelta). La meseta mide al menos el ancho de la escalera.',
+    ['de cuarto de vuelta', 'de ida y vuelta', 'de media vuelta'],
+  ),
+  TradeTerm(
+    'Escalera de zanca central',
+    'Escaleras y barandillas',
+    'Una sola viga, normalmente un tubo, bajo el eje de la escalera; los peldaños vuelan a ambos lados sobre ménsulas.',
+    ['espina', 'escalera volada'],
+  ),
+  TradeTerm(
+    'Escalera de caracol',
+    'Escaleras y barandillas',
+    'Peldaños en abanico alrededor de un mástil central. El CTE solo la admite en uso restringido (vivienda, altillo): contrahuella ≤ 20 cm, huella ≥ 22 cm y ancho ≥ 0,80 m.',
+    ['helicoidal', 'de husillo'],
+  ),
+  TradeTerm(
+    'Escala de gato',
+    'Escaleras y barandillas',
+    'Escalera vertical fija de largueros y peldaños cada 25–30 cm; con jaula de aros si la subida supera 3 m (EN ISO 14122-4).',
+    ['escala marinera', 'escala vertical', 'pates'],
+  ),
+  TradeTerm('Balaustre', 'Escaleras y barandillas', 'Barrote vertical de la barandilla, a veces torneado o de forja.', ['barrote', 'balaustrada']),
+  TradeTerm(
+    'Montante de barandilla',
+    'Escaleras y barandillas',
+    'Poste vertical que ancla la barandilla al suelo o al canto del forjado y recibe el empuje del pasamanos.',
+    ['pilastra', 'poste'],
+  ),
+  TradeTerm(
+    'Antepecho / guardacuerpos',
+    'Escaleras y barandillas',
+    'Barandilla o peto que protege de la caída en balcones, ventanas, terrazas y bordes de forjado.',
+    ['peto', 'pretil', 'baranda'],
+  ),
+  TradeTerm(
+    'Pasamanos a pared',
+    'Escaleras y barandillas',
+    'Pasamanos sujeto al muro con soportes cada ≤ 1,2 m y separado ≥ 4 cm del paramento.',
+    ['asidero', 'agarradero', 'barra de apoyo'],
+  ),
+  TradeTerm(
+    'Rellenos de barandilla',
+    'Escaleras y barandillas',
+    'Barrotes verticales, vidrio laminado con pinzas, chapa perforada, lamas o cables. Cables y barras horizontales son escalables.',
+    ['vidrio', 'cables', 'chapa perforada', 'lamas'],
+  ),
 
   // Geometría y cálculo
   TradeTerm('Luz', 'Geometría y cálculo', 'Distancia libre entre apoyos de una viga o cercha.', ['vano', 'claro']),

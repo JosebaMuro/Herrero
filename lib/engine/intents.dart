@@ -37,6 +37,8 @@ const typeIntents = <StructureType, List<String>>{
     'escalera exterior de emergencia',
     'acceso para subir a la primera planta por fuera',
     'escalera de servicio para llegar a la máquina',
+    'escalera en L con descansillo para subir a la planta de arriba',
+    'escalera vertical con jaula para subir al tejado',
   ],
   StructureType.pasarela: [
     'una pasarela para cruzar por encima de la carretera',
@@ -51,6 +53,8 @@ const typeIntents = <StructureType, List<String>>{
     'pasamanos para la escalera',
     'antepecho de vidrio en la terraza',
     'barandilla de seguridad alrededor del foso',
+    'una barra en la pared para agarrarse al subir los escalones',
+    'barandilla de cristal o de cables para la terraza',
   ],
   StructureType.cercha: [
     'cerchas metálicas para el tejado de la casa',

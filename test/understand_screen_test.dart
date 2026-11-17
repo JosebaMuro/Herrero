@@ -50,4 +50,17 @@ void main() {
     await tester.pump(const Duration(milliseconds: 500));
     expect(find.byType(ProjectScreen), findsOneWidget);
   });
+
+  testWidgets('elegir la forma de la escalera', (tester) async {
+    await pump(tester, 'escalera de 3 m de altura');
+    expect(find.text('Forma'), findsOneWidget);
+    expect(find.text('Recta'), findsOneWidget);
+    await tester.tap(find.text('Forma'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('De caracol'));
+    await tester.pumpAndSettle();
+    expect(find.text('De caracol'), findsOneWidget);
+    expect(find.text('Diámetro'), findsOneWidget);
+    expect(find.text('cambiado por ti'), findsWidgets);
+  });
 }

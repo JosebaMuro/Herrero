@@ -52,7 +52,7 @@ extension StructureTypeName on StructureType {
       case StructureType.pasarela:
         return 'Pasarela / puente peatonal';
       case StructureType.barandilla:
-        return 'Barandilla / antepecho';
+        return 'Barandilla / pasamanos / antepecho';
       case StructureType.cercha:
         return 'Cubierta de cerchas (celosía)';
       case StructureType.torre:
@@ -163,6 +163,7 @@ enum MemberRole {
   strut,
   frame,
   rail,
+  bracket,
 }
 
 extension MemberRoleName on MemberRole {
@@ -208,6 +209,8 @@ extension MemberRoleName on MemberRole {
         return 'Bastidor';
       case MemberRole.rail:
         return 'Travesaño / larguero';
+      case MemberRole.bracket:
+        return 'Soporte / garra';
     }
   }
 
@@ -253,6 +256,8 @@ extension MemberRoleName on MemberRole {
         return 'H';
       case MemberRole.rail:
         return 'T';
+      case MemberRole.bracket:
+        return 'SG';
     }
   }
 }

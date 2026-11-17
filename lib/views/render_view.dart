@@ -256,6 +256,8 @@ class SceneMesh {
       case ProfileFamily.shs:
       case ProfileFamily.rhs:
       case ProfileFamily.round:
+      case ProfileFamily.chs:
+      case ProfileFamily.flat:
         _box(mid, ax, f, w, len, b, h, alb, sp);
         break;
       case ProfileFamily.upn:
@@ -370,6 +372,7 @@ class SceneMesh {
         MemberRole.strut => 'MONTANTES_CERCHA',
         MemberRole.frame => 'BASTIDOR',
         MemberRole.rail => 'LARGUEROS',
+        MemberRole.bracket => 'SOPORTES',
       };
 
   /// Empaqueta la malla para el rasterizador (listas tipadas, apto para isolate).

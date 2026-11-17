@@ -176,7 +176,10 @@ List<(double, double, double, double)> _sectionRects(SteelProfile p) {
     case ProfileFamily.angle:
       return [(0, (b - tw) / 2, b, tw), ((b - tw) / 2, 0, tw, b)];
     case ProfileFamily.round:
+    case ProfileFamily.chs:
       return const [];
+    case ProfileFamily.flat:
+      return [(0, 0, h, b)];
   }
 }
 
@@ -185,6 +188,12 @@ List<(double, double, double, double)> _sectionRects(SteelProfile p) {
 void _section(CadSheet s, _V v, SteelProfile p, double cx, double cy, double wu, double wv, double fu, double fv) {
   if (p.family == ProfileFamily.round) {
     s.circle(cx, cy, math.max(0.35, v.p(p.h) / 2), CadLayer.secciones, fill: true);
+    return;
+  }
+  if (p.family == ProfileFamily.chs) {
+    final r = math.max(0.35, v.p(p.h) / 2);
+    s.circle(cx, cy, r, CadLayer.secciones);
+    if (r - v.p(p.tw) > 0.3) s.circle(cx, cy, r - v.p(p.tw), CadLayer.secciones);
     return;
   }
   final rects = _sectionRects(p);

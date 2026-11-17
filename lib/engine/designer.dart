@@ -7,6 +7,7 @@ import 'parser.dart';
 import 'profiles.dart';
 
 part 'designer_extra.dart';
+part 'designer_forms.dart';
 
 // ---------------------------------------------------------------------------
 // Utilidades de cálculo (EN 1993-1-1 / CTE DB-SE-A)
@@ -55,6 +56,8 @@ List<SteelProfile> _prefCands(String pref, List<SteelProfile> cands) {
     'tubo' => [ProfileFamily.shs, ProfileFamily.rhs],
     'angle' => [ProfileFamily.angle],
     'round' => [ProfileFamily.round],
+    'chs' => [ProfileFamily.chs],
+    'flat' => [ProfileFamily.flat],
     _ => <ProfileFamily>[],
   };
   final list = [for (final f in fams) ...tableFor(f)];
@@ -87,7 +90,10 @@ double _alphaStrong(SteelProfile p) {
       return 0.34;
     case ProfileFamily.upn:
     case ProfileFamily.round:
+    case ProfileFamily.flat:
       return 0.49; // curva c
+    case ProfileFamily.chs:
+      return 0.21; // tubo laminado en caliente: curva a
   }
 }
 
@@ -104,7 +110,10 @@ double _alphaWeak(SteelProfile p) {
       return 0.34;
     case ProfileFamily.upn:
     case ProfileFamily.round:
+    case ProfileFamily.flat:
       return 0.49;
+    case ProfileFamily.chs:
+      return 0.21;
   }
 }
 

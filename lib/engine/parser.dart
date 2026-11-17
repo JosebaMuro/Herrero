@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'catalog.dart';
 import 'model.dart';
 import 'profiles.dart';
+import 'spanish.dart';
 import 'vocabulary.dart';
 
 /// Normaliza el texto: minúsculas, sin tildes, coma decimal -> punto.
@@ -124,22 +125,43 @@ const List<String> _windZoneC = [
   'almeria',
 ];
 
-/// Elige la tipología: gana la palabra clave de más peso y, a igualdad, la que
-/// aparece antes (el sustantivo principal suele ir primero).
-StructureType detectType(String t, List<String> notes) {
+/// Palabra clave de tipología más fuerte del texto: (tipología, peso, posición).
+/// Gana la de más peso y, a igualdad, la que aparece antes (el sustantivo
+/// principal suele ir primero). Lo que va como complemento («escalera con
+/// barandilla», «nave y altillo») cuenta menos que lo pedido.
+(StructureType?, int, int) keywordType(String t) {
   StructureType? best;
-  var bestScore = -1.0;
+  var bestScore = -1e9;
+  var weight = 0, at = 1 << 30;
+  final component = RegExp(
+      r'(?:con|sin|y|e|de|del|para|al|a|sobre|encima de|incluid[oa]s?|lleva|llevara|ademas de|mas)\s+(?:(?:una|un|unos|unas|el|la|los|las|su|sus|mi|mis)\s+)?$');
   for (final ty in typologies) {
     for (final e in ty.keywords.entries) {
       final m = RegExp('(?<![a-z])${RegExp.escape(e.key)}(?![a-z])').firstMatch(t);
       if (m == null) continue;
-      final score = e.value * 1000.0 + e.key.length * 10 - m.start * 0.5;
+      final before = t.substring(math.max(0, m.start - 14), m.start);
+      // «para depósito», «para polipasto»: la carga que sostiene define la estructura
+      final purpose = _purposeKeys.contains(e.key) && RegExp(r'para\s+(?:(?:un|una|el|la|los|las)\s+)?$').hasMatch(before);
+      final isPart = m.start > 0 && !purpose && component.hasMatch(before);
+      final score = e.value * 1000.0 + e.key.length * 10 - m.start * 0.5 - (isPart ? 6000 : 0);
       if (score > bestScore) {
         bestScore = score;
         best = ty.type;
+        weight = isPart ? math.max(1, e.value - 6) : e.value;
+        at = m.start;
       }
     }
   }
+  return (best, weight, at);
+}
+
+const _purposeKeys = {
+  'deposito', 'aljibe', 'tanque', 'silo', 'polipasto', 'diferencial', 'cartel', 'letrero', 'bandera', 'rotulo', 'farola', 'antena',
+};
+
+/// Elige la tipología por palabras clave (ver [keywordType]).
+StructureType detectType(String t, List<String> notes) {
+  var (best, _, _) = keywordType(t);
   for (final h in unsupportedHints.entries) {
     if (RegExp('(?<![a-z])${RegExp.escape(h.key)}').hasMatch(t)) {
       notes.add(h.value.$2);
@@ -162,11 +184,55 @@ StructureType detectType(String t, List<String> notes) {
   return best;
 }
 
+/// Forma pedida por el usuario en la ficha («variante caracol»), si la hay.
+String? _forcedVariant(String t) => RegExp(r'variante ([a-z ]+?)\s*(?:[,.;]|$)').firstMatch(t)?[1]?.trim();
+
+/// Forma de la escalera: recta, en L, en U, zanca central, caracol o escala de gato.
+String stairForm(String t) {
+  final f = _forcedVariant(t);
+  if (f != null && stairForms.contains(f)) return f;
+  if (RegExp(r'escala de gato').hasMatch(t)) return 'escala de gato';
+  if (RegExp(r'caracol').hasMatch(t)) return 'caracol';
+  if (RegExp(r'escalera en l(?![a-z])|(?<![a-z])en l(?![a-z0-9])|cuarto de vuelta|giro de 90').hasMatch(t)) return 'en l';
+  if (RegExp(r'escalera en u(?![a-z])|(?<![a-z])en u(?![a-z0-9])|media vuelta|ida y vuelta|giro de 180').hasMatch(t)) return 'en u';
+  if (RegExp(r'zanca central').hasMatch(t)) return 'zanca central';
+  return 'recta';
+}
+
+const stairForms = ['recta', 'en l', 'en u', 'zanca central', 'caracol', 'escala de gato'];
+
+/// Relleno de la barandilla o pasamanos a pared.
+String railForm(String t) {
+  final f = _forcedVariant(t);
+  if (f != null && railForms.contains(f)) return f;
+  if (t.contains('pasamanos a pared') ||
+      (t.contains('pasamanos') && !RegExp(r'barandilla|antepecho|guardacuerpos|barrotes|montantes|vidrio|cables|peto').hasMatch(t))) {
+    return 'pasamanos a pared';
+  }
+  if (t.contains('vidrio')) return 'vidrio';
+  if (t.contains('cables')) return 'cables';
+  if (t.contains('chapa perforada') || RegExp(r'(?<![a-z])chapa(?! lagrimada)').hasMatch(t)) return 'chapa perforada';
+  if (RegExp(r'(?<![a-z])lamas?(?![a-z])').hasMatch(t)) return 'lamas';
+  if (t.contains('barras horizontales')) return 'barras horizontales';
+  return 'barrotes';
+}
+
+const railForms = ['barrotes', 'vidrio', 'cables', 'chapa perforada', 'lamas', 'barras horizontales', 'pasamanos a pared'];
+
+/// ¿Es una reja de ventana (y no una valla de parcela)?
+bool isWindowGrille(String t) {
+  final f = _forcedVariant(t);
+  if (f != null) return f == 'reja';
+  return t.contains('reja de ventana') || (RegExp(r'(?<![a-z])rejas?(?![a-z])').hasMatch(t) && RegExp(r'ventana|balcon').hasMatch(t));
+}
+
 /// Interpreta el prompt en lenguaje natural y devuelve la especificación.
 /// [type] fija la tipología (p. ej. la que ha decidido la comprensión IA).
 StructureSpec parsePrompt(String prompt, {StructureType? type}) {
   final t = canonicalize(normalize(prompt));
   final notes = <String>[];
+  final fixes = spanishNote(normalize(prompt));
+  if (fixes != null) notes.add(fixes);
 
   // --- Tipo de estructura (catálogo de tipologías con sinónimos) ---------
   type ??= detectType(t, notes);
@@ -262,8 +328,21 @@ StructureSpec parsePrompt(String prompt, {StructureType? type}) {
 
   switch (type) {
     case StructureType.escalera:
+      final form = stairForm(t);
       height ??= def('altura a salvar', 3.0);
-      if (width == null || width > 3) width = def('ancho de paso', 1.0);
+      if (form == 'caracol') {
+        // en la de caracol, «ancho» es el diámetro total
+        final diam = _find(t, [
+          'diametro\\s*(?:total\\s*)?(?:de|:|=)?\\s*(?<n>\\d+(?:\\.\\d+)?)\\s*(?<u>mm|cm|m)?',
+          '(?<n>\\d+(?:\\.\\d+)?)\\s*(?<u>mm|cm|m)?(?:etros?|ts?)?\\s*de\\s+diametro',
+        ]);
+        width = diam ?? (width != null && width >= 1.2 && width <= 3 ? width : null);
+        if (width == null || width < 1.2 || width > 3) width = def('diámetro', 1.8);
+      } else if (form == 'escala de gato') {
+        if (width == null || width < 0.35 || width > 0.8) width = def('ancho entre largueros', 0.45);
+      } else if (width == null || width > 3) {
+        width = def('ancho de paso', 1.0);
+      }
       length = 0; // el desarrollo lo calcula el diseño
       break;
     case StructureType.pasarela:
@@ -272,8 +351,14 @@ StructureSpec parsePrompt(String prompt, {StructureType? type}) {
       height ??= def('altura', 3.0);
       break;
     case StructureType.barandilla:
-      length ??= def('longitud', 10.0);
-      if (height == null || height > 1.5) {
+      final wall = railForm(t) == 'pasamanos a pared';
+      length ??= def('longitud', wall ? 4.0 : 10.0);
+      if (wall) {
+        if (height == null || height > 1.2 || height < 0.7) {
+          height = 0.9;
+          notes.add('Pasamanos a 0,90 m sobre la línea de peldaños o el suelo (CTE DB-SUA 1: entre 0,90 y 1,10 m).');
+        }
+      } else if (height == null || height > 1.5) {
         final fall = height;
         final hr = (fall != null && fall > 6) || RegExp(r'publica|comercial|colegio|1\.1').hasMatch(t) ? 1.1 : 0.9;
         height = hr;
@@ -303,8 +388,14 @@ StructureSpec parsePrompt(String prompt, {StructureType? type}) {
       width = 0;
       break;
     case StructureType.valla:
-      length ??= def('longitud', 20.0);
-      height ??= def('altura', 2.0);
+      if (isWindowGrille(t)) {
+        if (length == null && width != null && width >= 0.3 && width <= 4) length = width;
+        length ??= def('ancho del hueco', 1.2);
+        height ??= def('alto del hueco', 1.2);
+      } else {
+        length ??= def('longitud', 20.0);
+        height ??= def('altura', 2.0);
+      }
       width = 0;
       break;
     case StructureType.portico:
@@ -636,7 +727,13 @@ StructureSpec parsePrompt(String prompt, {StructureType? type}) {
           '${sliding ? '' : (two ? ' 2 hojas' : ' 1 hoja')} · ${infill()}';
       break;
     case StructureType.valla:
-      variant = infill();
+      variant = isWindowGrille(t) ? 'reja · ${infill() == 'chapa' ? 'barrotes' : infill()}' : infill();
+      break;
+    case StructureType.barandilla:
+      final form = railForm(t);
+      final toe = form != 'pasamanos a pared' &&
+          (t.contains('rodapie') || RegExp(r'industrial|nave|fabrica|mantenimiento|pasarela|plataforma').hasMatch(t));
+      variant = '$form${toe ? ' · rodapié' : ''}';
       break;
     case StructureType.cercha:
       variant = '${RegExp(r'pilares|columnas|soportes metalicos').hasMatch(t) ? 'sobre pilares' : 'sobre muros'}'
@@ -677,7 +774,7 @@ StructureSpec parsePrompt(String prompt, {StructureType? type}) {
       variant = live <= 2 ? 'mantenimiento' : (live >= 5 ? 'peatonal pública' : 'acceso');
       break;
     case StructureType.escalera:
-      variant = RegExp(r'exterior|intemperie|fachada').hasMatch(t) ? 'exterior' : 'interior';
+      variant = '${stairForm(t)}${RegExp(r'exterior|intemperie|fachada').hasMatch(t) ? ' · exterior' : ''}';
       break;
     default:
       break;
@@ -823,10 +920,17 @@ String? _profileIn(String w, List<String> notes) {
   }
   if (RegExp(r'(?<![a-z])(redondos?|varillas?|barras? macizas?|cables?)(?![a-z])').hasMatch(w)) return 'round';
   if (RegExp(r'(?<![a-z])(angular(?:es)?|angulos?|perfil(?:es)? (?:en )?l)(?![a-z])').hasMatch(w)) return 'angle';
-  if (RegExp(r'tubos? (?:redondos?|circular(?:es)?)').hasMatch(w)) {
-    notes.add('Tubo redondo: el catálogo de la app no incluye CHS; se calcula con tubo cuadrado equivalente.');
-    return 'tubo';
+  final chs = RegExp(r'(?:chs|tubos? (?:redondos?|circular(?:es)?))\s*(?:de\s*)?(?:ø\s*|diametro\s*)?(\d{2,3}(?:\.\d)?)(?:\s*x\s*(\d+(?:\.\d)?))?')
+      .firstMatch(w);
+  if (chs != null) {
+    final d = double.parse(chs[1]!);
+    final t = chs[2] == null ? null : double.parse(chs[2]!);
+    final c = chsTable.where((p) => (p.h - d).abs() < 1.5 && (t == null || (p.tw - t).abs() < 0.2)).toList();
+    if (c.isNotEmpty) return t == null ? '${c.first.name.split('x').first}x*' : c.first.name;
+    return 'chs';
   }
+  if (RegExp(r'(?<![a-z])(chs|tubos? (?:redondos?|circular(?:es)?))(?![a-z])').hasMatch(w)) return 'chs';
+  if (RegExp(r'(?<![a-z])(pletinas?|llantas?|platabandas?)(?![a-z])').hasMatch(w)) return 'flat';
   if (RegExp(r'(?<![a-z])(rhs|tubos? rectangular(?:es)?)(?![a-z])').hasMatch(w)) return 'rhs';
   if (RegExp(r'(?<![a-z])(shs|tubos? cuadrados?|cuadradillos?)(?![a-z])').hasMatch(w)) return 'shs';
   if (RegExp(r'(?<![a-z])(tubos?|tubular(?:es)?)(?![a-z])').hasMatch(w)) return 'tubo';

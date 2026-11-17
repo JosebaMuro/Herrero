@@ -5,6 +5,7 @@ import '../ai/local_text.dart';
 import '../ai/model_manager.dart';
 import '../engine/designer.dart';
 import '../engine/model.dart';
+import '../engine/parser.dart' show stairForms, railForms;
 import '../engine/understanding.dart';
 import 'models_screen.dart';
 import 'project_screen.dart';
@@ -157,25 +158,63 @@ class _UnderstandScreenState extends State<UnderstandScreen> {
     if (v != null && v.trim().isNotEmpty) _set(field, v.trim());
   }
 
-  Future<void> _choose(String field, String label, List<String> options) async {
+  Future<void> _choose(String field, String label, List<String> options, {Map<String, String> labels = const {}}) async {
     final v = await showDialog<String>(
       context: context,
       builder: (ctx) => SimpleDialog(
         title: Text(label),
         children: [
-          for (final o in options) SimpleDialogOption(onPressed: () => Navigator.pop(ctx, o), child: Text(o)),
+          for (final o in options) SimpleDialogOption(onPressed: () => Navigator.pop(ctx, o), child: Text(labels[o] ?? o)),
         ],
       ),
     );
     if (v != null) _set(field, v);
   }
 
+  /// Formas o rellenos que se pueden elegir en la ficha: (título, opciones).
+  static (String, List<String>)? _forms(StructureType t) => switch (t) {
+        StructureType.escalera => ('Forma', stairForms),
+        StructureType.barandilla => ('Relleno', railForms),
+        StructureType.valla => ('Tipo', const ['barrotes', 'chapa', 'malla', 'reja']),
+        _ => null,
+      };
+
+  static const _formLabels = {
+    'recta': 'Recta',
+    'en l': 'En L (meseta de giro a 90°)',
+    'en u': 'En U (ida y vuelta)',
+    'zanca central': 'Zanca central',
+    'caracol': 'De caracol',
+    'escala de gato': 'Escala de gato (vertical)',
+    'barrotes': 'Barrotes',
+    'vidrio': 'Vidrio',
+    'cables': 'Cables de acero',
+    'chapa perforada': 'Chapa perforada',
+    'lamas': 'Lamas',
+    'barras horizontales': 'Barras horizontales',
+    'pasamanos a pared': 'Solo pasamanos a pared',
+    'chapa': 'Chapa ciega',
+    'malla': 'Malla',
+    'reja': 'Reja de ventana',
+  };
+
+  /// Forma actual (sin los añadidos «· exterior», «· rodapié»…).
+  static String _formOf(String variant) => variant.split(' · ').first.trim();
+
   // --- presentación -----------------------------------------------------------
 
   static String _fmt(double v) => v.toStringAsFixed(v % 1 == 0 ? 0 : 2).replaceAll('.', ',');
 
   /// Medidas que tienen sentido en cada tipología: (campo, etiqueta).
-  static List<(String, String)> _dims(StructureType t) => switch (t) {
+  static List<(String, String)> _dims(StructureType t, [String variant = '']) {
+    final f = _formOf(variant);
+    if (t == StructureType.escalera && f == 'caracol') return [('height', 'Desnivel a salvar'), ('width', 'Diámetro')];
+    if (t == StructureType.escalera && f == 'escala de gato') return [('height', 'Altura de subida'), ('width', 'Ancho entre largueros')];
+    if (t == StructureType.valla && f == 'reja') return [('length', 'Ancho del hueco'), ('height', 'Alto del hueco')];
+    return _dimsOf(t);
+  }
+
+  static List<(String, String)> _dimsOf(StructureType t) => switch (t) {
         StructureType.nave => [('length', 'Largo'), ('width', 'Luz (ancho)'), ('height', 'Altura al alero')],
         StructureType.marquesina => [('length', 'Largo'), ('width', 'Fondo'), ('height', 'Altura libre')],
         StructureType.entreplanta => [('length', 'Largo'), ('width', 'Ancho'), ('height', 'Altura bajo forjado')],
@@ -295,6 +334,7 @@ class _UnderstandScreenState extends State<UnderstandScreen> {
                         onChanged: (v) {
                           if (v == null) return;
                           _forced = v;
+                          _overrides.remove('variant');
                           _recompute();
                         },
                       ),
@@ -310,13 +350,17 @@ class _UnderstandScreenState extends State<UnderstandScreen> {
                               label: Text('¿O es ${a.label.split('/').first.trim().toLowerCase()}?'),
                               onPressed: () {
                                 _forced = a;
+                                _overrides.remove('variant');
                                 _recompute();
                               },
                             ),
                         ]),
                       ),
                     const Divider(height: 1),
-                    for (final (f, label) in _dims(t))
+                    if (_forms(t) case (final title, final options))
+                      _row(title, _formLabels[_formOf(s.variant)] ?? _formOf(s.variant), u.sources['variant'],
+                          () => _choose('variant', title, options, labels: _formLabels)),
+                    for (final (f, label) in _dims(t, s.variant))
                       _row(label, '${_fmt(_dimValue(f))} m', u.sources[f], () => _editNumber(f, label, _dimValue(f))),
                     if (t == StructureType.estanteria || t == StructureType.torre)
                       _row('Niveles', s.levels > 0 ? '${s.levels}' : 'según altura', u.sources['levels'],

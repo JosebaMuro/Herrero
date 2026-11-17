@@ -15,6 +15,14 @@ estructura según **CTE DB-SE-A / Eurocódigo 3** y genera:
 - **Render 3D** con z-buffer y sombras, y **foto realista con IA local** (sin internet).
 - **Importar plano**: PDF de CAD, PDF escaneado, foto o croquis a mano (OCR y visión IA locales).
 
+## Novedades de la v3.3
+
+- Diccionario de castellano: entiende faltas, diminutivos, plurales y regionalismos («escalra»,
+  «varandilla», «escalerita»), y vocabulario de escaleras, barandillas, pasamanos, rejas y vallas.
+- Nuevas formas: escalera en L, en U, de zanca central y de caracol; escala de gato con jaula;
+  barandillas de vidrio, cables, chapa perforada o lamas con rodapié; pasamanos a pared; reja de ventana.
+- Autocompletar en el campo de la petición.
+
 ## Novedades de la v3.2
 
 - **App para iPhone y iPad** (iOS 15 o posterior): `Herrero-ios.ipa`, gratis con tu Apple ID (instrucciones
@@ -74,9 +82,9 @@ la renueva sola por wifi si el ordenador tiene AltServer abierto. Con un Apple I
 | Nave de pórticos a dos aguas | nave, pórtico, almacén, taller, hangar |
 | Marquesina / pérgola / cobertizo | marquesina, pérgola, porche, carport, cochera |
 | Entreplanta / altillo | altillo, entreplanta, plataforma, forjado |
-| Escalera, pasarela, barandilla | escalera, zanca, pasarela, barandilla, pasamanos |
+| Escalera (recta, en L, en U, zanca central, caracol, escala de gato), pasarela, barandilla, pasamanos | escalera, peldaños, caracol, escala de gato, pasarela, barandilla, pasamanos, guardacuerpos |
 | Cercha, torre, estantería | cercha, celosía, torre, estantería, rack |
-| Cancela, valla, pórtico, poste | cancela, puerta, valla, pórtico, poste, báculo |
+| Cancela, valla, reja de ventana, pórtico, poste | cancela, puerta, valla, reja, pórtico, poste, báculo |
 
 ## Desarrollo
 

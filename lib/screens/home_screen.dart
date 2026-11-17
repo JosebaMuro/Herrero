@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../engine/autocomplete.dart';
 import 'catalog_screen.dart';
 import 'models_screen.dart';
 import 'plan_import_screen.dart';
@@ -30,10 +31,37 @@ class _HomeScreenState extends State<HomeScreen> {
   List<String> _history = [];
   bool _busy = false;
 
+  List<Suggestion> _suggestions = const [];
+
   @override
   void initState() {
     super.initState();
     _loadHistory();
+    _ctrl.addListener(_onEdit);
+  }
+
+  @override
+  void dispose() {
+    _ctrl.removeListener(_onEdit);
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  /// Autocompletar: sugerencias con el vocabulario del oficio al escribir.
+  void _onEdit() {
+    final sel = _ctrl.selection;
+    final cur = sel.isValid && sel.isCollapsed ? sel.baseOffset : _ctrl.text.length;
+    final next = suggest(_ctrl.text, cursor: cur);
+    final same = next.length == _suggestions.length &&
+        [for (var i = 0; i < next.length; i++) next[i].label == _suggestions[i].label].every((e) => e);
+    if (!same && mounted) setState(() => _suggestions = next);
+  }
+
+  void _accept(Suggestion s) {
+    _ctrl.value = TextEditingValue(
+      text: s.text,
+      selection: TextSelection.collapsed(offset: s.cursor.clamp(0, s.text.length)),
+    );
   }
 
   Future<void> _loadHistory() async {
@@ -83,7 +111,7 @@ class _HomeScreenState extends State<HomeScreen> {
         title: const Row(children: [
           Icon(Icons.construction),
           SizedBox(width: 10),
-          Text('Herrero · Oficina técnica'),
+          Flexible(child: Text('Herrero · Oficina técnica', overflow: TextOverflow.ellipsis)),
         ]),
         actions: [
           IconButton(
@@ -107,7 +135,7 @@ class _HomeScreenState extends State<HomeScreen> {
             onPressed: () => showAboutDialog(
               context: context,
               applicationName: 'Herrero',
-              applicationVersion: '3.2.0',
+              applicationVersion: '3.3.0',
               children: const [
                 Text('Predimensionado de estructuras metálicas según CTE DB-SE-A y Eurocódigo 3, '
                     'con despiece, soldaduras, planos tipo CAD (PDF y DXF), modelo 3D para SketchUp, '
@@ -139,6 +167,27 @@ class _HomeScreenState extends State<HomeScreen> {
                     hintText: 'Ej.: Nave a dos aguas de 20 x 12 m, 5 m al alero, pórticos cada 5 m, en Madrid',
                   ),
                 ),
+                if (_suggestions.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: SingleChildScrollView(
+                      key: const ValueKey('autocompletar'),
+                      scrollDirection: Axis.horizontal,
+                      child: Row(children: [
+                        Icon(Icons.auto_awesome, size: 18, color: cs.primary),
+                        const SizedBox(width: 6),
+                        for (final sg in _suggestions)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 6),
+                            child: ActionChip(
+                              visualDensity: VisualDensity.compact,
+                              label: Text(sg.label),
+                              onPressed: () => _accept(sg),
+                            ),
+                          ),
+                      ]),
+                    ),
+                  ),
                 const SizedBox(height: 12),
                 FilledButton.icon(
                   onPressed: _busy ? null : () => _run(),

@@ -1,5 +1,6 @@
 import 'model.dart';
 import 'parser.dart';
+import 'spanish.dart';
 
 /// Razonamiento de oficio: lo que un técnico deduce de una petición aunque no
 /// traiga medidas («para 2 coches», «que quepa el tractor»…). Determinista y
@@ -27,7 +28,7 @@ const _counted = r'(?:metros?|m\b|cm|mm|coches?|plazas?|vehiculos?|turismos?|fur
 /// Convierte en cifras los números escritos con letra que cuentan o miden.
 /// Respeta expresiones fijas como «a dos aguas» o «dos hojas» del intérprete.
 String spellNumbers(String text) {
-  var t = normalize(text);
+  var t = fixSpanish(normalize(text));
   final words = _units.keys.toList()..sort((a, b) => b.length.compareTo(a.length));
   final re = RegExp('(?<![a-z])(${words.join('|')})(?:\\s+y\\s+(medio))?(\\s+(?:de\\s+)?)($_counted)');
   t = t.replaceAllMapped(re, (m) {
