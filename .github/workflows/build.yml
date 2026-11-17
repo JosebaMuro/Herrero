@@ -48,6 +48,13 @@ jobs:
       # APK solo para móviles de 64 bits (casi todos desde 2017): bastante más ligero
       - run: flutter build apk --release --split-per-abi --target-platform android-arm64
       - run: cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk Herrero-android-arm64.apk
+      - name: Comprobar que los APK piden internet (descarga de modelos IA)
+        run: |
+          AAPT2=$(ls ${ANDROID_HOME:-$ANDROID_SDK_ROOT}/build-tools/*/aapt2 | sort -V | tail -1)
+          for a in Herrero-android.apk Herrero-android-arm64.apk; do
+            "$AAPT2" dump permissions "$a"
+            "$AAPT2" dump permissions "$a" | grep -q "android.permission.INTERNET" || { echo "::error::$a sin permiso INTERNET"; exit 1; }
+          done
       - uses: actions/upload-artifact@v4
         with:
           name: Herrero-android

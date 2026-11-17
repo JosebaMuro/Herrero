@@ -1,5 +1,12 @@
 # Historial de versiones
 
+## 3.0.1
+
+- **Android: arreglada la descarga de modelos IA** (OCR, foto IA y visión IA). El APK no pedía el permiso
+  de internet y todas las descargas fallaban en el móvil. La compilación comprueba ahora ese permiso.
+- Si la conexión se corta o se cuelga (datos móviles), la descarga se reintenta sola y sigue donde se
+  quedó. Mensajes de error claros (sin conexión, conexión segura, espacio libre).
+
 ## 3.0.0
 
 - **Planos tipo CAD** en A3: cajetín ISO 7200, líneas normalizadas (gruesa, fina, trazos, trazo y punto),

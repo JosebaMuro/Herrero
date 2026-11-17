@@ -422,7 +422,7 @@ class ModelManager extends ChangeNotifier {
     Object? lastError;
     for (final (rel, sub) in _releases) {
       try {
-        final r = await http.get(Uri.parse('$rel/manifest.json'));
+        final r = await http.get(Uri.parse('$rel/manifest.json')).timeout(const Duration(seconds: 30));
         if (r.statusCode != 200) {
           throw Exception('No se pudo obtener el catálogo de modelos (HTTP ${r.statusCode}).');
         }
@@ -471,39 +471,28 @@ class ModelManager extends ChangeNotifier {
             continue;
           }
           final part = File('${target.path}.part');
-          var have = part.existsSync() ? part.lengthSync() : 0;
-          if (have > expSize) {
-            part.deleteSync();
-            have = 0;
-          }
-          if (have < expSize) {
-            final req = http.Request('GET', Uri.parse('${m.release}/$f'));
-            if (have > 0) req.headers['Range'] = 'bytes=$have-';
-            final resp = await client.send(req);
-            if (resp.statusCode == 200 && have > 0) {
-              have = 0; // el servidor no admite reanudación
-              part.writeAsBytesSync([]);
-            } else if (resp.statusCode != 200 && resp.statusCode != 206) {
-              throw Exception('Error HTTP ${resp.statusCode} descargando $f');
+          // Si la conexión se corta o se cuelga (datos móviles), se reintenta
+          // sola y sigue donde se quedó.
+          for (var attempt = 1;; attempt++) {
+            var have = part.existsSync() ? part.lengthSync() : 0;
+            if (have > expSize) {
+              part.deleteSync();
+              have = 0;
             }
-            final sink = part.openWrite(mode: have > 0 ? FileMode.append : FileMode.write);
-            var got = have;
-            var lastNotify = DateTime.now();
+            if (have >= expSize) break;
             try {
-              await for (final chunk in resp.stream) {
-                if (_cancel[m.id] == true) throw _Cancelled();
-                sink.add(chunk);
-                got += chunk.length;
+              await _fetchInto(client, '${m.release}/$f', part, have, expSize, (got) {
                 st.bytesDone = doneBefore + got;
                 st.progress = st.bytesTotal == 0 ? 0 : st.bytesDone / st.bytesTotal;
-                if (DateTime.now().difference(lastNotify).inMilliseconds > 250) {
-                  lastNotify = DateTime.now();
-                  notifyListeners();
-                }
-              }
-            } finally {
-              await sink.flush();
-              await sink.close();
+              }, () => _cancel[m.id] == true);
+              break;
+            } on _Cancelled {
+              rethrow;
+            } catch (e) {
+              final network = e is SocketException || e is http.ClientException || e is TimeoutException;
+              if (!network || attempt >= _maxAttempts) rethrow;
+              await Future<void>.delayed(Duration(seconds: 2 * attempt));
+              if (_cancel[m.id] == true) throw _Cancelled();
             }
           }
           // verificación
@@ -527,9 +516,60 @@ class ModelManager extends ChangeNotifier {
     } on _Cancelled {
       status[m.id] = ModelStatus(DlState.notInstalled);
     } catch (e) {
-      status[m.id] = ModelStatus(DlState.error, error: '$e');
+      status[m.id] = ModelStatus(DlState.error, error: friendlyDownloadError(e));
     }
     notifyListeners();
+  }
+
+  static const _maxAttempts = 4;
+
+  /// Descarga [url] en [part] desde el byte [have] (reanudación con Range).
+  Future<void> _fetchInto(http.Client client, String url, File part, int have, int expSize,
+      void Function(int got) onBytes, bool Function() cancelled) async {
+    final req = http.Request('GET', Uri.parse(url));
+    if (have > 0) req.headers['Range'] = 'bytes=$have-';
+    final resp = await client.send(req).timeout(const Duration(seconds: 30));
+    if (resp.statusCode == 200 && have > 0) {
+      have = 0; // el servidor no admite reanudación
+    } else if (resp.statusCode != 200 && resp.statusCode != 206) {
+      throw Exception('Error HTTP ${resp.statusCode} descargando ${url.split('/').last}');
+    }
+    final sink = part.openWrite(mode: have > 0 ? FileMode.append : FileMode.write);
+    var got = have;
+    var lastNotify = DateTime.now();
+    try {
+      // en datos móviles la conexión puede quedarse colgada sin dar error
+      await for (final chunk in resp.stream.timeout(const Duration(seconds: 60))) {
+        if (cancelled()) throw _Cancelled();
+        sink.add(chunk);
+        got += chunk.length;
+        onBytes(got);
+        if (DateTime.now().difference(lastNotify).inMilliseconds > 250) {
+          lastNotify = DateTime.now();
+          notifyListeners();
+        }
+      }
+    } finally {
+      await sink.flush();
+      await sink.close();
+    }
+    if (got < expSize) throw http.ClientException('Conexión cortada en el byte $got de $expSize', Uri.parse(url));
+  }
+
+  /// Mensaje claro para el usuario a partir de un error de red o de disco.
+  static String friendlyDownloadError(Object e) {
+    if (e is SocketException || e is http.ClientException || e is TimeoutException) {
+      return 'Sin conexión con el servidor de modelos (GitHub). Comprueba internet y vuelve a '
+          'intentarlo: la descarga sigue donde se quedó.';
+    }
+    if (e is TlsException) {
+      return 'No se pudo abrir una conexión segura con GitHub. Comprueba la fecha y hora del dispositivo.';
+    }
+    if (e is FileSystemException) {
+      return 'No se pudo guardar el modelo (${e.osError?.message ?? e.message}). Comprueba el espacio libre.';
+    }
+    final t = '$e';
+    return t.startsWith('Exception: ') ? t.substring('Exception: '.length) : t;
   }
 
   static Future<bool> _verify(String path, String expected) => Isolate.run(() async {

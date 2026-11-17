@@ -71,7 +71,11 @@ class _ModelsScreenState extends State<ModelsScreen> {
     await mgr.download(m);
     final st = mgr.status[m.id];
     if (st?.state == DlState.installed) {
-      _snack('«${m.name}» listo. Ya puedes generar fotos sin conexión.');
+      _snack(switch (m.task) {
+        ModelTask.photo => '«${m.name}» listo. Ya puedes generar fotos sin conexión.',
+        ModelTask.plans => '«${m.name}» listo. Ya puedes importar planos escaneados y fotos sin conexión.',
+        ModelTask.sketch => '«${m.name}» listo. Ya puedes interpretar croquis sin conexión.',
+      });
     } else if (st?.state == DlState.error) {
       _snack(st!.error ?? 'Error en la descarga');
     }
