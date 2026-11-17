@@ -23,7 +23,7 @@ jobs:
         run: |
           pip install --no-cache-dir torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
           pip install --no-cache-dir "transformers==4.48.3" "onnx==1.17.0" "onnxruntime==1.20.1" "numpy<2.2" pillow huggingface_hub tokenizers
-      - name: Descargar SmolVLM-256M (ONNX int8) y generar referencia
+      - name: Descargar SmolVLM 256M y 500M (ONNX uint8), adaptarlos a ORT 1.15 y generar referencia
         run: python scripts/prepare_vlm.py
       - name: Verificar con ONNX Runtime 1.15 (el de la app)
         run: |
@@ -54,6 +54,8 @@ jobs:
           make_latest: false
           body: |
             Modelo de visión y lenguaje local para "Importar plano" de Herrero (croquis a mano y planos complejos).
-            SmolVLM-256M-Instruct de Hugging Face (licencia Apache-2.0), ONNX cuantizado a 8 bits (uint8) tal como lo publica transformers.js.
+            SmolVLM-256M-Instruct (móvil) y SmolVLM-500M-Instruct (PC) de Hugging Face (licencia Apache-2.0),
+            ONNX cuantizado a 8 bits (uint8) tal como lo publica transformers.js, con RotaryEmbedding
+            sustituido por operadores estándar para que funcione con ONNX Runtime 1.15.
             Descarga desde la app → Modelos IA.
           files: out_vlm/*
