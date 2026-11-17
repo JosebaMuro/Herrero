@@ -2,16 +2,16 @@
 
 - Descarga de Hugging Face los ONNX int8 (codificador de imagen, embeddings y
   decodificador con caché KV) y el tokenizador.
-- Si el IR es más nuevo que el que admite ONNX Runtime 1.15 (el de la app), lo
-  rebaja a IR 8.
+- Usan operadores com.microsoft (GroupQueryAttention, RotaryEmbedding…), así que
+  la app sustituye el ONNX Runtime 1.15 del paquete de pub por el 1.20
+  (scripts/ort_runtime.py).
 - Dibuja un croquis de prueba (512 x 512, sin reescalado) y genera la
-  respuesta de referencia con el mismo bucle que usa la app (pasado ficticio de
-  longitud 1 enmascarado), comprobando que coincide con el bucle estándar.
+  respuesta de referencia con el mismo bucle voraz que usa la app.
 - Escribe out_vlm/ con los ficheros, el croquis de prueba y manifest.json
   (tamaño + SHA-256, configuración y vectores de prueba para la app).
 
 Uso: python scripts/prepare_vlm.py           (descarga + referencia)
-     python scripts/prepare_vlm.py --verify  (repite con ORT 1.15 y compara)
+     python scripts/prepare_vlm.py --verify  (repite en un proceso nuevo y compara)
 """
 import hashlib, json, os, shutil, sys, time
 
@@ -136,99 +136,6 @@ def generate(vis, emb, dec, cfg, ids, pv, dummy_past=True):
     return out_ids
 
 
-def _rank_of(model, name):
-    import onnx
-    for vi in list(model.graph.value_info) + list(model.graph.input) + list(model.graph.output):
-        if vi.name == name and vi.type.tensor_type.HasField('shape'):
-            return len(vi.type.tensor_type.shape.dim)
-    return None
-
-
-def decompose_contrib(path):
-    """ONNX Runtime 1.15 (el de la app) no tiene com.microsoft:RotaryEmbedding.
-    Se sustituye por operadores estándar (no intercalado):
-    out = [x1*cos - x2*sin, x2*cos + x1*sin] con cos/sin = cache[position_ids]."""
-    import onnx
-    from onnx import helper, TensorProto, numpy_helper
-    m = onnx.load(path)
-    try:
-        inf = onnx.shape_inference.infer_shapes(m)
-    except Exception as e:  # noqa: BLE001
-        print('  sin inferencia de formas:', e)
-        inf = m
-    g = m.graph
-    producers = {o: n for n in g.node for o in n.output}
-    new_nodes = []
-    consts = {}
-
-    def const(name, arr):
-        if name not in consts:
-            consts[name] = numpy_helper.from_array(np.asarray(arr), name)
-        return name
-
-    n_rot = 0
-    for node in g.node:
-        if not (node.domain == 'com.microsoft' and node.op_type == 'RotaryEmbedding'):
-            new_nodes.append(node)
-            continue
-        attrs = {a.name: helper.get_attribute_value(a) for a in node.attribute}
-        assert int(attrs.get('interleaved', 0)) == 0, attrs
-        x, pos, cos_c, sin_c = node.input[:4]
-        y = node.output[0]
-        rank = _rank_of(inf, x)
-        prod = producers.get(x)
-        if rank is None:
-            rank = 4 if (prod is not None and prod.op_type == 'Transpose') else 3
-        if n_rot == 0:
-            print('  RotaryEmbedding', attrs, 'rango', rank, 'productor', prod.op_type if prod else None)
-        k = f'{node.name or y}_rot'
-        nn = lambda op, ins, outs, **kw: new_nodes.append(helper.make_node(op, ins, outs, name=f'{k}_{op}_{len(new_nodes)}', **kw))
-        nn('Gather', [cos_c, pos], [f'{k}_cos'], axis=0)  # (b, s, d/2)
-        nn('Gather', [sin_c, pos], [f'{k}_sin'], axis=0)
-        if rank == 4:  # (b, h, s, d)
-            ax = const('rot_ax1', np.array([1], np.int64))
-            nn('Unsqueeze', [f'{k}_cos', ax], [f'{k}_c'])
-            nn('Unsqueeze', [f'{k}_sin', ax], [f'{k}_s'])
-            xin = x
-        else:  # (b, s, h*d) -> (b, s, h, d)
-            ax = const('rot_ax2', np.array([2], np.int64))
-            nn('Unsqueeze', [f'{k}_cos', ax], [f'{k}_c'])
-            nn('Unsqueeze', [f'{k}_sin', ax], [f'{k}_s'])
-            nn('Shape', [cos_c], [f'{k}_cshape'])
-            nn('Slice', [f'{k}_cshape', const('rot_i1', np.array([1], np.int64)), const('rot_i2', np.array([2], np.int64))], [f'{k}_half'])
-            nn('Mul', [f'{k}_half', const('rot_two', np.array([2], np.int64))], [f'{k}_dim'])
-            nn('Concat', [const('rot_00', np.array([0, 0, -1], np.int64)), f'{k}_dim'], [f'{k}_r4'], axis=0)
-            nn('Reshape', [x, f'{k}_r4'], [f'{k}_x4'])
-            nn('Shape', [x], [f'{k}_xshape'])
-            xin = f'{k}_x4'
-        # mitades del último eje
-        nn('Shape', [f'{k}_c'], [f'{k}_cs'])
-        nn('Slice', [f'{k}_cs', const('rot_m1', np.array([-1], np.int64)), const('rot_big', np.array([2**62], np.int64))], [f'{k}_h'])
-        nn('Slice', [xin, const('rot_z', np.array([0], np.int64)), f'{k}_h', const('rot_m1', np.array([-1], np.int64))], [f'{k}_x1'])
-        nn('Mul', [f'{k}_h', const('rot_two', np.array([2], np.int64))], [f'{k}_d'])
-        nn('Slice', [xin, f'{k}_h', f'{k}_d', const('rot_m1', np.array([-1], np.int64))], [f'{k}_x2'])
-        nn('Mul', [f'{k}_x1', f'{k}_c'], [f'{k}_a1'])
-        nn('Mul', [f'{k}_x2', f'{k}_s'], [f'{k}_a2'])
-        nn('Sub', [f'{k}_a1', f'{k}_a2'], [f'{k}_o1'])
-        nn('Mul', [f'{k}_x2', f'{k}_c'], [f'{k}_b1'])
-        nn('Mul', [f'{k}_x1', f'{k}_s'], [f'{k}_b2'])
-        nn('Add', [f'{k}_b1', f'{k}_b2'], [f'{k}_o2'])
-        # parte no rotada (si rotary_embedding_dim < head_size)
-        nn('Slice', [xin, f'{k}_d', const('rot_big', np.array([2**62], np.int64)), const('rot_m1', np.array([-1], np.int64))], [f'{k}_rest'])
-        if rank == 4:
-            nn('Concat', [f'{k}_o1', f'{k}_o2', f'{k}_rest'], [y], axis=-1)
-        else:
-            nn('Concat', [f'{k}_o1', f'{k}_o2', f'{k}_rest'], [f'{k}_y4'], axis=-1)
-            nn('Reshape', [f'{k}_y4', f'{k}_xshape'], [y])
-        n_rot += 1
-    del g.node[:]
-    g.node.extend(new_nodes)
-    g.initializer.extend(consts.values())
-    left = sorted({(n.domain, n.op_type) for n in g.node if n.domain not in ('', 'ai.onnx')})
-    print(f'  {n_rot} RotaryEmbedding sustituidos; operadores no estándar restantes: {left}')
-    onnx.save(m, path)
-
-
 def prepare(prefix, repo, img, tests_out):
     from huggingface_hub import hf_hub_download
     import onnx
@@ -244,10 +151,6 @@ def prepare(prefix, repo, img, tests_out):
                 m.ir_version = 8
                 onnx.save(m, f'{OUT}/{dst}')
                 print('  -> IR 8')
-            if any(o == ('com.microsoft', 'RotaryEmbedding') for o in ops):
-                ref = ort.InferenceSession(f'{OUT}/{dst}', providers=['CPUExecutionProvider'])
-                decompose_contrib(f'{OUT}/{dst}')
-                check_same(ref, f'{OUT}/{dst}')
     cfg = json.load(open(f'{OUT}/{prefix}_config.json'))
     from transformers import AutoProcessor
     proc = AutoProcessor.from_pretrained(repo)
@@ -265,13 +168,11 @@ def prepare(prefix, repo, img, tests_out):
         ids = inp['input_ids'][0].tolist()
         expanded = proc.tokenizer.decode(ids)
         t0 = time.time()
-        a = generate(vis, emb, dec, cfg, ids, pv, dummy_past=True)
+        a = generate(vis, emb, dec, cfg, ids, pv, dummy_past=False)
         dt = time.time() - t0
-        b = generate(vis, emb, dec, cfg, ids, pv, dummy_past=False)
         text = tok.decode(a, skip_special_tokens=True)
-        print(f'[{prefix}] P: {q[:60]}…\n  R ({len(a)} tokens, {dt:.1f} s): {text!r}')
-        print('  igual al bucle estándar:', a == b)
-        assert len(a) > 3 and a[:8] == b[:8], 'el pasado enmascarado no coincide'
+        print(f'[{prefix}] P: {q[:60]}…\n  R ({len(a)} tokens, {dt:.1f} s): {text!r}', flush=True)
+        assert len(a) > 3, 'respuesta vacía'
         tests_out.append({'model': prefix, 'question': q, 'prompt': prompt, 'expanded': expanded,
                           'prompt_ids': ids, 'output_ids': a, 'output_text': text})
     tok_tests = []
@@ -296,34 +197,11 @@ def main():
             continue
         p = os.path.join(OUT, n)
         files[n] = {'size': os.path.getsize(p), 'sha256': hashlib.sha256(open(p, 'rb').read()).hexdigest()}
-    json.dump({'model': 'SmolVLM 256M / 500M Instruct (Hugging Face, Apache-2.0), ONNX uint8 de transformers.js; '
-                        'RotaryEmbedding sustituido por operadores estándar para ONNX Runtime 1.15',
+    json.dump({'model': 'SmolVLM 256M / 500M Instruct (Hugging Face, Apache-2.0), ONNX uint8 de transformers.js '
+                        '(necesita ONNX Runtime >= 1.17 por GroupQueryAttention; la app usa 1.20)',
                'files': files, 'models': info, 'tests': tests},
               open(f'{OUT}/manifest.json', 'w'), indent=1, ensure_ascii=False)
     print(json.dumps(files, indent=1))
-
-
-def check_same(ref, path):
-    """Compara el decodificador original y el reescrito con datos aleatorios."""
-    new = ort.InferenceSession(path, providers=['CPUExecutionProvider'])
-    rng = np.random.default_rng(0)
-    feed = {}
-    for i in ref.get_inputs():
-        shp = [d if isinstance(d, int) else 1 for d in i.shape]
-        if i.name == 'inputs_embeds':
-            shp[1] = 5
-            feed[i.name] = rng.standard_normal(shp).astype(np.float32) * 0.1
-        elif i.name == 'attention_mask':
-            feed[i.name] = np.array([[0, 1, 1, 1, 1, 1]], np.int64)
-        elif i.name == 'position_ids':
-            feed[i.name] = np.array([[0, 1, 2, 3, 4]], np.int64)
-        else:
-            feed[i.name] = rng.standard_normal(shp).astype(np.float32) * 0.1
-    a = ref.run(None, feed)
-    b = new.run(None, feed)
-    d = max(float(np.abs(x - y).max()) for x, y in zip(a, b))
-    print('  diferencia máxima original/reescrito:', d)
-    assert d < 1e-3, d
 
 
 def verify():
@@ -337,7 +215,7 @@ def verify():
             if t['model'] != prefix:
                 continue
             t0 = time.time()
-            a = generate(vis, emb, dec, cfg, t['prompt_ids'], pv)
+            a = generate(vis, emb, dec, cfg, t['prompt_ids'], pv, dummy_past=False)
             print(f'[{prefix}] {len(a)} tokens en {time.time() - t0:.1f} s; coincide: {a == t["output_ids"]}')
             assert a[:8] == t['output_ids'][:8], (a, t['output_ids'])
 

@@ -41,6 +41,8 @@ jobs:
           channel: stable
           cache: true
       - run: flutter pub get
+      - name: ONNX Runtime 1.20 (operadores del VLM)
+        run: python3 scripts/ort_runtime.py android
       - run: flutter build apk --release
       - run: cp build/app/outputs/flutter-apk/app-release.apk Herrero-android.apk
       # APK solo para móviles de 64 bits (casi todos desde 2017): bastante más ligero
@@ -64,6 +66,8 @@ jobs:
           channel: stable
           cache: true
       - run: flutter pub get
+      - name: ONNX Runtime 1.20 (operadores del VLM)
+        run: python scripts/ort_runtime.py windows
       - run: flutter build windows --release
       - name: Portable ZIP
         shell: pwsh

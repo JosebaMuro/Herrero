@@ -249,8 +249,7 @@ Future<VlmResult> runVlmSync(VlmRequest req, [void Function(String)? onPartial])
       }
     }
 
-    // 3) decodificación voraz con caché KV. ORT de la app no crea tensores
-    // vacíos: se empieza con un pasado de 1 posición enmascarada.
+    // 3) decodificación voraz con caché KV (el pasado empieza vacío)
     dec = _open(_p(req.modelDir, '${req.prefix}_decoder_int8.onnx'), req.threads);
     final outNames = dec.outputNames;
     final logitsIdx = outNames.indexOf('logits');
@@ -258,10 +257,10 @@ Future<VlmResult> runVlmSync(VlmRequest req, [void Function(String)? onPartial])
     for (var l = 0; l < layers; l++) {
       for (final kv in ['key', 'value']) {
         past['past_key_values.$l.$kv'] =
-            OrtValueTensor.createTensorWithDataList(Float32List(kvHeads * headDim), [1, kvHeads, 1, headDim]);
+            OrtValueTensor.createTensorWithDataList(Float32List(0), [1, kvHeads, 0, headDim]);
       }
     }
-    final mask = <int>[0, ...List<int>.filled(ids.length, 1)];
+    final mask = List<int>.filled(ids.length, 1, growable: true);
     var pos = [for (var i = 0; i < ids.length; i++) i];
     var seq = ids.length;
     final outIds = <int>[];
