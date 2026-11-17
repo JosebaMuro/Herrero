@@ -54,6 +54,6 @@ jobs:
           make_latest: false
           body: |
             Modelo de visión y lenguaje local para "Importar plano" de Herrero (croquis a mano y planos complejos).
-            SmolVLM-256M-Instruct de Hugging Face (licencia Apache-2.0), ONNX int8 tal como lo publica transformers.js.
+            SmolVLM-256M-Instruct de Hugging Face (licencia Apache-2.0), ONNX cuantizado a 8 bits (uint8) tal como lo publica transformers.js.
             Descarga desde la app → Modelos IA.
           files: out_vlm/*

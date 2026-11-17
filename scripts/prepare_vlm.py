@@ -22,9 +22,9 @@ from PIL import Image, ImageDraw, ImageFont
 OUT = 'out_vlm'
 REPO = 'HuggingFaceTB/SmolVLM-256M-Instruct'
 FILES = {
-    'smolvlm_vision_int8.onnx': 'onnx/vision_encoder_int8.onnx',
-    'smolvlm_embed_int8.onnx': 'onnx/embed_tokens_int8.onnx',
-    'smolvlm_decoder_int8.onnx': 'onnx/decoder_model_merged_int8.onnx',
+    'smolvlm_vision_int8.onnx': 'onnx/vision_encoder_quantized.onnx',
+    'smolvlm_embed_int8.onnx': 'onnx/embed_tokens_quantized.onnx',
+    'smolvlm_decoder_int8.onnx': 'onnx/decoder_model_merged_quantized.onnx',
     'smolvlm_tokenizer.json': 'tokenizer.json',
     'smolvlm_config.json': 'config.json',
 }
