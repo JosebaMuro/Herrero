@@ -59,24 +59,30 @@ PlanAnalysis analyzePlan(PlanReading r, {String? vision}) {
   final norm = canonicalize(normalize(raw));
 
   // --- Tipología ---------------------------------------------------------
-  StructureType? type;
-  var bestScore = -1.0;
-  for (final ty in typologies) {
-    for (final e in ty.keywords.entries) {
-      final m = RegExp('(?<![a-z])${RegExp.escape(e.key)}(?![a-z])').firstMatch(norm);
-      if (m == null) continue;
-      final score = e.value * 1000.0 + e.key.length * 10 - m.start * 0.01;
-      if (score > bestScore) {
-        bestScore = score;
-        type = ty.type;
+  StructureType? typeIn(String text) {
+    StructureType? type;
+    var bestScore = -1.0;
+    for (final ty in typologies) {
+      for (final e in ty.keywords.entries) {
+        final m = RegExp('(?<![a-z])${RegExp.escape(e.key)}(?![a-z])').firstMatch(text);
+        if (m == null) continue;
+        final score = e.value * 1000.0 + e.key.length * 10 - m.start * 0.01;
+        if (score > bestScore) {
+          bestScore = score;
+          type = ty.type;
+        }
       }
     }
+    return type;
   }
 
+  var type = typeIn(norm);
+
   var typeByVision = false;
-  if (type == null && vh?.type != null) {
-    type = vh!.type;
-    typeByVision = true;
+  if (type == null && vh != null) {
+    // en inglés (lo normal) o rótulos en español que el modelo transcribe
+    type = vh.type ?? typeIn(canonicalize(normalize(vision!)));
+    typeByVision = type != null;
   }
 
   // --- Unidades de las cotas --------------------------------------------

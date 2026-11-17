@@ -151,7 +151,8 @@ class _ModelsScreenState extends State<ModelsScreen> {
               Text(
                 'Los modelos se ejecutan en tu dispositivo: las imágenes no salen de él. '
                 'Basados en SD-Turbo (Stability AI; revisa su licencia antes de un uso comercial), TAESD (MIT) '
-                'y PP-OCRv4 de PaddleOCR (Apache-2.0), en formato ONNX para funcionar en CPU, NPU o GPU.',
+                'PP-OCRv4 de PaddleOCR (Apache-2.0) y SmolVLM de Hugging Face (Apache-2.0), en formato ONNX '
+                'para funcionar en CPU, NPU o GPU.',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ],
