@@ -5,6 +5,7 @@ import '../engine/model.dart';
 import '../engine/parser.dart';
 import '../engine/vocabulary.dart';
 import 'plan_token.dart';
+import 'vision_hints.dart';
 
 /// Dato detectado en el plano, para revisarlo antes de calcular.
 class PlanFinding {
@@ -28,7 +29,10 @@ String _f(double v) {
 }
 
 /// Convierte los textos de un plano en una descripción para el intérprete.
-PlanAnalysis analyzePlan(PlanReading r) {
+/// [vision] es la descripción del croquis hecha por el VLM local (en inglés):
+/// completa la tipología, las cotas o la cubierta que el texto no da.
+PlanAnalysis analyzePlan(PlanReading r, {String? vision}) {
+  final vh = vision == null || vision.trim().isEmpty ? null : visionHints(vision);
   final findings = <PlanFinding>[];
   final warnings = <String>[];
 
@@ -67,6 +71,12 @@ PlanAnalysis analyzePlan(PlanReading r) {
         type = ty.type;
       }
     }
+  }
+
+  var typeByVision = false;
+  if (type == null && vh?.type != null) {
+    type = vh!.type;
+    typeByVision = true;
   }
 
   // --- Unidades de las cotas --------------------------------------------
@@ -158,6 +168,20 @@ PlanAnalysis analyzePlan(PlanReading r) {
     }
   }
 
+  // Sin cotas legibles: las que haya leído la visión (mayor = longitud,
+  // menor = altura si es razonable, la intermedia = ancho)
+  var dimsByVision = false;
+  if (length == null && vh != null && vh.dims.isNotEmpty) {
+    final d = vh.dims;
+    length = d.first;
+    if (d.length >= 3) {
+      width = d[1];
+    } else if (d.length == 2 && d[1] > 6) {
+      width = d[1];
+    }
+    dimsByVision = true;
+  }
+
   // Alturas rotuladas o por niveles (+5,00 / +7,10)
   final hm = RegExp(r'(?:altura(?: libre| al alero| de alero)?|alero|h\s*=|h libre)\s*(?:de|:|=)?\s*(\d+(?:\.\d+)?)\s*(mm|cm|m)?').firstMatch(norm);
   if (hm != null) {
@@ -171,6 +195,10 @@ PlanAnalysis analyzePlan(PlanReading r) {
       findings.add(PlanFinding('Altura (por cota de nivel)', '${_f(height)} m', guessed: true));
       if (ridge != null) findings.add(PlanFinding('Cumbrera (por cota de nivel)', '${_f(ridge)} m', guessed: true));
     }
+  }
+  if (height == null && dimsByVision && vh!.dims.length >= 2 && vh.dims.last <= 8 && vh.dims.last >= 1.8) {
+    height = vh.dims.last;
+    findings.add(PlanFinding('Altura (visión IA)', '${_f(height)} m', guessed: true));
   }
 
   // --- Datos rotulados ---------------------------------------------------
@@ -189,6 +217,9 @@ PlanAnalysis analyzePlan(PlanReading r) {
   if (RegExp(r'tramex').hasMatch(norm)) words.add('tramex');
   if (RegExp(r'lagrimada').hasMatch(norm)) words.add('chapa lagrimada');
   if (RegExp(r'colaborante').hasMatch(norm)) words.add('chapa colaborante');
+  if (vh != null && !words.any((w) => w.startsWith('panel') || w.startsWith('chapa') || w == 'policarbonato' || w == 'teja')) {
+    words.addAll(vh.words);
+  }
   for (final f in ['galvanizado', 'lacado', 'corten', 'inox', 'aluminio']) {
     if (norm.contains(f)) words.add(f == 'inox' ? 'acero inoxidable' : f);
   }
@@ -226,8 +257,14 @@ PlanAnalysis analyzePlan(PlanReading r) {
   final ty = type ?? (width != null && width > 4 ? StructureType.nave : StructureType.marquesina);
   if (type == null) {
     warnings.add('El plano no nombra la tipología: se propone «${ty.label}». Cámbiala si no es correcta.');
+  } else if (typeByVision) {
+    warnings.add('La tipología la ha deducido la visión IA del dibujo: compruébala.');
   }
-  findings.insert(0, PlanFinding('Tipología', ty.label, guessed: type == null));
+  if (dimsByVision) {
+    warnings.add('Las medidas las ha leído la visión IA: revísalas con el croquis.');
+  }
+  findings.insert(0, PlanFinding(typeByVision ? 'Tipología (visión IA)' : 'Tipología', ty.label,
+      guessed: type == null || typeByVision));
   final sb = StringBuffer(ty.label.split(' / ').first);
   if (length != null && width != null) {
     sb.write(' de ${_f(length)} x ${_f(width)} m');

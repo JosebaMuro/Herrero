@@ -107,7 +107,7 @@ class _Tri {
 /// Malla 3D de la estructura (perfiles reales extruidos, placas, zapatas y
 /// cubierta opcional).
 class SceneMesh {
-  final List<_Tri> tris = [];
+  final List<_Tri> _tris = [];
   final Vec3 center;
   final double radius;
   /// Estructura esbelta (más alta que ancha): la cámara se aleja un poco.
@@ -292,11 +292,11 @@ class SceneMesh {
       final n = (p[b] - p[a]).cross(p[c2] - p[a]);
       final fc = (p[a] + p[b] + p[c2] + p[d]) * 0.25;
       if (n.dot(fc - c) < 0) {
-        tris.add(_Tri(p[a], p[c2], p[b], alb, sp));
-        tris.add(_Tri(p[a], p[d], p[c2], alb, sp));
+        _tris.add(_Tri(p[a], p[c2], p[b], alb, sp));
+        _tris.add(_Tri(p[a], p[d], p[c2], alb, sp));
       } else {
-        tris.add(_Tri(p[a], p[b], p[c2], alb, sp));
-        tris.add(_Tri(p[a], p[c2], p[d], alb, sp));
+        _tris.add(_Tri(p[a], p[b], p[c2], alb, sp));
+        _tris.add(_Tri(p[a], p[c2], p[d], alb, sp));
       }
     }
 
@@ -310,12 +310,12 @@ class SceneMesh {
 
   void _quad(Vec3 a, Vec3 b, Vec3 c, Vec3 d, Vec3 alb, double sp,
       {double alpha = 1, int pattern = ZPattern.none}) {
-    tris.add(_Tri(a, b, c, alb, sp, alpha: alpha, castsShadow: alpha > 0.7, pattern: pattern));
-    tris.add(_Tri(a, c, d, alb, sp, alpha: alpha, castsShadow: alpha > 0.7, pattern: pattern));
+    _tris.add(_Tri(a, b, c, alb, sp, alpha: alpha, castsShadow: alpha > 0.7, pattern: pattern));
+    _tris.add(_Tri(a, c, d, alb, sp, alpha: alpha, castsShadow: alpha > 0.7, pattern: pattern));
   }
 
   void _tri(Vec3 a, Vec3 b, Vec3 c, Vec3 alb, double sp, {double alpha = 1, int pattern = ZPattern.none}) {
-    tris.add(_Tri(a, b, c, alb, sp, alpha: alpha, castsShadow: alpha > 0.7, pattern: pattern));
+    _tris.add(_Tri(a, b, c, alb, sp, alpha: alpha, castsShadow: alpha > 0.7, pattern: pattern));
   }
 
   /// Modelo por piezas para exportar (DXF 3D y SketchUp): un grupo por
@@ -324,15 +324,15 @@ class SceneMesh {
     final s = SceneMesh._(const Vec3(0, 0, 0), 1, false);
     final out = <MeshGroup>[];
     void flush(String name, String layer) {
-      if (s.tris.isEmpty) return;
-      final t0 = s.tris.first;
+      if (s._tris.isEmpty) return;
+      final t0 = s._tris.first;
       final xyz = <double>[];
-      for (final t in s.tris) {
+      for (final t in s._tris) {
         xyz.addAll([t.a.x, t.a.y, t.a.z, t.b.x, t.b.y, t.b.z, t.c.x, t.c.y, t.c.z]);
       }
       out.add(MeshGroup(name, layer, xyz, t0.albedo.x, t0.albedo.y, t0.albedo.z,
           alpha: t0.alpha));
-      s.tris.clear();
+      s._tris.clear();
     }
 
     final alb = finish.albedo, sp = finish.specular;
@@ -374,9 +374,9 @@ class SceneMesh {
 
   /// Empaqueta la malla para el rasterizador (listas tipadas, apto para isolate).
   ZScene pack() {
-    final data = Float32List(tris.length * zStride);
+    final data = Float32List(_tris.length * zStride);
     var o = 0;
-    for (final t in tris) {
+    for (final t in _tris) {
       data
         ..[o] = t.a.x
         ..[o + 1] = t.a.y
@@ -399,7 +399,7 @@ class SceneMesh {
         ..[o + 18] = t.castsShadow ? 1 : 0;
       o += zStride;
     }
-    return ZScene(data, tris.length, center.x, center.y, center.z, radius, tall);
+    return ZScene(data, _tris.length, center.x, center.y, center.z, radius, tall);
   }
 
   /// Color, especular, alfa y patrón de cada tipo de superficie. Solo el

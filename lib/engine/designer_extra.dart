@@ -24,7 +24,7 @@ SteelProfile _beamFor(List<SteelProfile> cands, String what, double qd, double q
   return _choose(cands, (p) {
     final qdd = qd + 1.35 * _self(p), qkk = qk + _self(p);
     final med = qdd * l * l / 8 + pd * l / 4;
-    final d = _deflSS(qkk, l, p) + pk * 1000 * math.pow(l * 1000, 3) / (48 * _E * p.iy * 1e4);
+    final d = _deflSS(qkk, l, p) + pk * 1000 * math.pow(l * 1000, 3) / (48 * _youngE * p.iy * 1e4);
     return [
       Check('$what ${p.name}', 'Flexión ELU', med / _mRd(p, fy),
           'qd = ${_f(qdd, 2)} kN/m${pd > 0 ? ', Pd = ${_f(pd)} kN' : ''}, L = ${_f(l, 2)} m, MEd = ${_f(med, 2)} kN·m'),
@@ -213,7 +213,7 @@ Design _designEscalera(StructureSpec s, String prompt) {
     final qk = (gTread + q) * w / 2 + _self(p) / cosA + 0.15;
     final med = qd * lh * lh / 8;
     final qPerp = qk * cosA * cosA;
-    final defl = 5 * qPerp * math.pow(li * 1000, 4) / (384 * _E * p.iy * 1e4);
+    final defl = 5 * qPerp * math.pow(li * 1000, 4) / (384 * _youngE * p.iy * 1e4);
     return [
       Check('Zanca ${p.name}', 'Flexión ELU (proyección horizontal)', med / _mRd(p, fy),
           'qd = ${_f(qd, 2)} kN/m, Lh = ${_f(lh, 2)} m, inclinación ${_f(alpha * 180 / math.pi)}°, MEd = ${_f(med, 2)} kN·m'),
@@ -615,7 +615,7 @@ Design _designCercha(StructureSpec s, String prompt) {
   final hEff = flat ? rise : rise * 0.55;
   final iEff = 0.8 * (top.area * bot.area / (top.area + bot.area)) * math.pow(hEff * 100, 2); // cm⁴
   final qk = (gk + sn) * bay;
-  final defl = 5 * qk * math.pow(span * 1000, 4) / (384 * _E * iEff * 1e4);
+  final defl = 5 * qk * math.pow(span * 1000, 4) / (384 * _youngE * iEff * 1e4);
   checks.add(Check('Cercha', 'Flecha ELS ≤ L/300', defl / (span * 1000 / 300), 'δ ≈ ${_f(defl)} mm, canto ${_f(rise, 2)} m'));
   // Correas en los nudos del cordón superior
   final purlin = _beamFor([...rhsTable, ...ipeTable], 'Correa', (1.35 * (roofW + 0.05) + 1.5 * sn) * slopeLen,
@@ -1258,12 +1258,12 @@ Design _designPortico(StructureSpec s, String prompt) {
     final it = (2 * b.b * math.pow(b.tf, 3) + (b.h - 2 * b.tf) * math.pow(b.tw, 3)) / 3;
     final izMm = b.iz * 1e4;
     final iw = izMm * math.pow(b.h - b.tf, 2) / 4;
-    final mcr = 1.35 * math.pi * math.pi * _E * izMm / (lMm * lMm) *
-        math.sqrt(iw / izMm + lMm * lMm * 81000 * it / (math.pi * math.pi * _E * izMm)) / 1e6;
+    final mcr = 1.35 * math.pi * math.pi * _youngE * izMm / (lMm * lMm) *
+        math.sqrt(iw / izMm + lMm * lMm * 81000 * it / (math.pi * math.pi * _youngE * izMm)) / 1e6;
     final lLT = math.sqrt(b.wply * 1000 * fy / (mcr * 1e6));
     final chiLT = _chi(lLT, b.h / b.b > 2 ? 0.34 : 0.21);
     final mb = chiLT * _mRd(b, fy);
-    final defl = p * 1000 * math.pow(lMm, 3) / (48 * _E * b.iy * 1e4);
+    final defl = p * 1000 * math.pow(lMm, 3) / (48 * _youngE * b.iy * 1e4);
     return [
       Check('Viga carril ${b.name}', 'Flexión con pandeo lateral M/Mb,Rd', med / mb,
           'Pd = ${_f(pd, 1)} kN (impacto 1,25), MEd = ${_f(med, 1)} kN·m, Mcr = ${_f(mcr, 1)} kN·m, χLT = ${_f(chiLT, 2)}'),

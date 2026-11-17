@@ -43,10 +43,15 @@ jobs:
       - run: flutter pub get
       - run: flutter build apk --release
       - run: cp build/app/outputs/flutter-apk/app-release.apk Herrero-android.apk
+      # APK solo para móviles de 64 bits (casi todos desde 2017): bastante más ligero
+      - run: flutter build apk --release --split-per-abi --target-platform android-arm64
+      - run: cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk Herrero-android-arm64.apk
       - uses: actions/upload-artifact@v4
         with:
           name: Herrero-android
-          path: Herrero-android.apk
+          path: |
+            Herrero-android.apk
+            Herrero-android-arm64.apk
 
   windows:
     runs-on: windows-latest

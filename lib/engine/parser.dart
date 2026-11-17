@@ -198,8 +198,8 @@ StructureSpec parsePrompt(String prompt) {
       width = small;
     } else if (length == null) {
       length = (width! - a).abs() < 1e-6 ? b : a;
-    } else if (width == null) {
-      width = (length - a).abs() < 1e-6 ? b : a;
+    } else {
+      width ??= (length - a).abs() < 1e-6 ? b : a;
     }
     if (dm[5] != null && height == null) {
       height = _toM(dm[5]!, dm[6] ?? u2);

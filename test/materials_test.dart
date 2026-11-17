@@ -18,7 +18,7 @@ void main() {
     expect(d.hypotheses.join(' '), contains('sándwich'));
     expect(d.checks, isNotEmpty);
     // ignore: avoid_print
-    print([for (final m in d.members) m.profile.name].toSet());
+    print({for (final m in d.members) m.profile.name});
   });
 
   test('perfiles por partes', () {

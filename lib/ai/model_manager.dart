@@ -15,9 +15,10 @@ import 'sd_pipeline.dart';
 
 const modelsRelease = 'https://github.com/JosebaMuro/Herrero/releases/download/models-sdturbo-v1';
 const ocrRelease = 'https://github.com/JosebaMuro/Herrero/releases/download/models-ocr-v1';
+const vlmRelease = 'https://github.com/JosebaMuro/Herrero/releases/download/models-vlm-v1';
 
 /// Paso de la app que usa un modelo de IA.
-enum ModelTask { photo, plans }
+enum ModelTask { photo, plans, sketch }
 
 extension ModelTaskLabel on ModelTask {
   String get label {
@@ -26,6 +27,8 @@ extension ModelTaskLabel on ModelTask {
         return 'Foto realista (IA local)';
       case ModelTask.plans:
         return 'Importar plano (lector OCR local)';
+      case ModelTask.sketch:
+        return 'Croquis a mano (visión local, VLM)';
     }
   }
 
@@ -35,6 +38,9 @@ extension ModelTaskLabel on ModelTask {
         return 'Convierte el render 3D de la estructura en una fotografía realista, sin internet.';
       case ModelTask.plans:
         return 'Lee rótulos y cotas de fotos de planos y de PDF escaneados para convertirlos en el prompt.';
+      case ModelTask.sketch:
+        return 'Mira el croquis o plano como una persona: reconoce el tipo de estructura, pilares, vigas y '
+            'cubierta aunque esté dibujado a mano. Se combina con el lector OCR para las cotas.';
     }
   }
 }
@@ -148,6 +154,66 @@ const catalog = <ModelVariant>[
       ('Diccionario de caracteres', 'ppocr_keys.txt'),
     ],
   ),
+  ModelVariant(
+    id: 'smolvlm-256m',
+    task: ModelTask.sketch,
+    name: 'Visión de croquis · SmolVLM 256M',
+    summary:
+        'Modelo de visión y lenguaje pequeño (Hugging Face, Apache-2.0) en int8. Describe croquis y '
+        'planos complejos para completar el prompt. Funciona sin internet en móvil y en PC.',
+    unetFile: '',
+    minRamGb: 3,
+    recRamGb: 4,
+    quality: 'Tipo de estructura y elementos: buena · cotas: mejor con el OCR',
+    speed: '10–40 s por croquis',
+    approxBytes: 262000000,
+    release: vlmRelease,
+    subdir: 'vlm',
+    fileList: [
+      'smolvlm_vision_int8.onnx',
+      'smolvlm_embed_int8.onnx',
+      'smolvlm_decoder_int8.onnx',
+      'smolvlm_tokenizer.json',
+      'smolvlm_config.json',
+    ],
+    partList: [
+      ('Codificador de imagen (SigLIP int8)', 'smolvlm_vision_int8.onnx'),
+      ('Embeddings de texto', 'smolvlm_embed_int8.onnx'),
+      ('Modelo de lenguaje (int8)', 'smolvlm_decoder_int8.onnx'),
+      ('Tokenizador', 'smolvlm_tokenizer.json'),
+      ('Configuración', 'smolvlm_config.json'),
+    ],
+  ),
+  ModelVariant(
+    id: 'smolvlm-500m',
+    task: ModelTask.sketch,
+    name: 'Visión de croquis · SmolVLM 500M (calidad)',
+    summary:
+        'Hermano mayor del anterior: entiende mejor los croquis complicados y las cotas. Recomendado en PC '
+        'y en móviles con 8 GB de RAM o más.',
+    unetFile: '',
+    minRamGb: 4,
+    recRamGb: 8,
+    quality: 'Tipo de estructura y elementos: muy buena · cotas: buena',
+    speed: '20–60 s por croquis',
+    approxBytes: 515000000,
+    release: vlmRelease,
+    subdir: 'vlm',
+    fileList: [
+      'smolvlm500_vision_int8.onnx',
+      'smolvlm500_embed_int8.onnx',
+      'smolvlm500_decoder_int8.onnx',
+      'smolvlm500_tokenizer.json',
+      'smolvlm500_config.json',
+    ],
+    partList: [
+      ('Codificador de imagen (SigLIP int8)', 'smolvlm500_vision_int8.onnx'),
+      ('Embeddings de texto', 'smolvlm500_embed_int8.onnx'),
+      ('Modelo de lenguaje (int8)', 'smolvlm500_decoder_int8.onnx'),
+      ('Tokenizador', 'smolvlm500_tokenizer.json'),
+      ('Configuración', 'smolvlm500_config.json'),
+    ],
+  ),
 ];
 
 /// Perfil del dispositivo para recomendar el modelo.
@@ -204,6 +270,9 @@ class DeviceProfile {
   ModelVariant recommended(ModelTask task) {
     ModelVariant byId(String id) => catalog.firstWhere((m) => m.id == id);
     if (task == ModelTask.plans) return byId('ppocr-v4');
+    if (task == ModelTask.sketch) {
+      return (!isMobile && (ramGb <= 0 || ramGb >= 6)) || ramGb >= 8 ? byId('smolvlm-500m') : byId('smolvlm-256m');
+    }
     final known = ramGb > 0;
     if (isMobile) {
       // En móvil la memoria manda: el VAE completo a 512 px pide más de 2 GB libres.
@@ -523,6 +592,19 @@ class ModelManager extends ChangeNotifier {
   /// Lector OCR de planos.
   ModelVariant get ocr => catalog.firstWhere((m) => m.task == ModelTask.plans);
   bool get ocrReady => status[ocr.id]?.state == DlState.installed;
+  /// Modelo de visión instalado (el más capaz) o, si no hay, el recomendado.
+  ModelVariant get vlm {
+    final all = catalog.where((m) => m.task == ModelTask.sketch).toList();
+    for (final m in all.reversed) {
+      if (status[m.id]?.state == DlState.installed) return m;
+    }
+    return device?.recommended(ModelTask.sketch) ?? all.first;
+  }
+
+  bool get vlmReady => status[vlm.id]?.state == DlState.installed;
+
+  /// Prefijo de ficheros del modelo de visión (smolvlm / smolvlm500).
+  String get vlmPrefix => vlm.files.first.split('_').first;
 }
 
 class _Cancelled implements Exception {}

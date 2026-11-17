@@ -8,7 +8,6 @@ import 'package:herrero/engine/designer.dart';
 import 'package:herrero/services/export.dart';
 import 'package:herrero/views/drawing_utils.dart';
 import 'package:herrero/views/iso_view.dart';
-import 'package:herrero/views/plan_view.dart';
 import 'package:herrero/views/render_view.dart';
 
 Future<void> _save(ui.Image img, String path) async {
@@ -38,18 +37,11 @@ void main() {
         print('${e.key}: render z-buffer 900x600 en ${sw.elapsedMilliseconds} ms');
         expect(iso.width, 900);
         expect(ren.width, 900);
-        final sheets = <ui.Image>[];
-        for (final v in SheetView.values) {
-          sheets.add(await paintToImage((c, s) => SheetPainter(d, v).paint(c, s), const Size(1188, 840), 1));
-        }
         final pdf = await buildPdf(d);
         expect(pdf.length, greaterThan(10000));
         if (out != null) {
           await _save(iso, '$out/${e.key}_iso.png');
           await _save(ren, '$out/${e.key}_render.png');
-          for (var i = 0; i < sheets.length; i++) {
-            await _save(sheets[i], '$out/${e.key}_sheet$i.png');
-          }
           File('$out/${e.key}.pdf').writeAsBytesSync(pdf);
         }
       });

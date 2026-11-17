@@ -1,3 +1,4 @@
+// ignore_for_file: avoid_print
 import 'package:flutter_test/flutter_test.dart';
 import 'package:herrero/engine/designer.dart';
 import 'package:herrero/engine/model.dart';

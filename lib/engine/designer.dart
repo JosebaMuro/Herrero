@@ -15,7 +15,7 @@ part 'designer_extra.dart';
 const double _limit = 0.90; // aprovechamiento objetivo en predimensionado
 
 /// Módulo de elasticidad del material del proyecto en curso (acero, inox, aluminio).
-double _E = steelE;
+double _youngE = steelE;
 
 /// Perfiles o familias impuestos por el usuario por parte de la estructura.
 Map<String, String> _parts = {};
@@ -65,7 +65,7 @@ List<SteelProfile> _prefCands(String pref, List<SteelProfile> cands) {
 }
 
 double _lambdaBar(double lkMm, double iCm, double fy) =>
-    (lkMm / (iCm * 10)) / (math.pi * math.sqrt(_E / fy));
+    (lkMm / (iCm * 10)) / (math.pi * math.sqrt(_youngE / fy));
 
 double _chi(double lb, double alpha) {
   if (lb <= 0.2) return 1.0;
@@ -116,7 +116,7 @@ double _nPl(SteelProfile p, double fy) => p.area * fy / gammaM0 / 10;
 
 /// Flecha de viga biapoyada con carga uniforme (mm). q en kN/m, L en m.
 double _deflSS(double q, double l, SteelProfile p) =>
-    5 * q * math.pow(l * 1000, 4) / (384 * _E * p.iy * 1e4);
+    5 * q * math.pow(l * 1000, 4) / (384 * _youngE * p.iy * 1e4);
 
 /// Elige el primer perfil (más ligero) cuyas comprobaciones cumplen.
 SteelProfile _choose(
@@ -210,7 +210,7 @@ Design designFromPrompt(String prompt) {
 }
 
 Design designFromSpec(StructureSpec spec, String prompt) {
-  _E = spec.grade.e;
+  _youngE = spec.grade.e;
   _parts = spec.parts;
   _partsUsed.clear();
   final Design d;
@@ -350,7 +350,7 @@ Design _designNave(StructureSpec s, String prompt) {
     qdPurlin = (1.35 * (gRoof * e + self) + 1.5 * qRoof * e);
     final med = qdPurlin * bay * bay / 10; // continua en 2+ vanos
     final qk = (gRoof * e + self + qRoof * e);
-    final defl = qk * math.pow(bay * 1000, 4) / (185 * _E * p.iy * 1e4);
+    final defl = qk * math.pow(bay * 1000, 4) / (185 * _youngE * p.iy * 1e4);
     return [
       Check('Correa ${p.name}', 'Flexión ELU  M = q·s²/10',
           med / _mRd(p, fy),
@@ -776,7 +776,7 @@ Design _designNave(StructureSpec s, String prompt) {
   final hyp = [
     ..._commonHypotheses(s),
     'Pórticos biarticulados en base, nudos rígidos en alero (cartela L/10) y cumbrera.',
-    'Luz ${_f(L, 2)} m; longitud ${_f(lx, 2)} m; ${nb} vanos de ${_f(bay, 2)} m; altura alero ${_f(H, 2)} m; pendiente ${_f(s.slopePct)} % (${_f(angleDeg)}°); cumbrera a ${_f(ridgeZ, 2)} m.',
+    'Luz ${_f(L, 2)} m; longitud ${_f(lx, 2)} m; $nb vanos de ${_f(bay, 2)} m; altura alero ${_f(H, 2)} m; pendiente ${_f(s.slopePct)} % (${_f(angleDeg)}°); cumbrera a ${_f(ridgeZ, 2)} m.',
     'Cubierta: ${s.roofing} (${_f(_roofingWeight(s.roofing), 2)} kN/m²) + instalaciones 0,05 kN/m². Correas a ${_f(e, 2)} m.',
     'Nieve sk = ${_f(qSnow, 2)} kN/m² (μ = 1). Uso G1 = 0,40 kN/m² (no concomitante).',
     'Viento qb = ${_f(qb, 2)} kN/m², ce ≈ 2,0, cp,barlovento+sotavento ≈ 1,3 (simplificado). Succión sobre correas no evaluada: revisar en proyecto.',
@@ -914,7 +914,7 @@ Design _designMarquesina(StructureSpec s, String prompt) {
     final lb = _lambdaBar(2.0 * colH * 1000, p.ry, fy);
     final nb = _chi(lb, _alphaStrong(p)) * p.area * fy / gammaM1 / 10;
     final mrd = _mRd(p, fy);
-    final dx = fk * math.pow(colH * 1000, 3) / (3 * _E * p.iy * 1e4) * 1000;
+    final dx = fk * math.pow(colH * 1000, 3) / (3 * _youngE * p.iy * 1e4) * 1000;
     return [
       Check('Pilar ${p.name}', 'Flexocompresión  N/Nb + M/Mc ≤ 1 (ménsula)',
           ned / nb + med / mrd,
@@ -1082,7 +1082,7 @@ Design _designMarquesina(StructureSpec s, String prompt) {
   final hyp = [
     ..._commonHypotheses(s),
     'Pilares empotrados en base (ménsula), jácenas biapoyadas en cabeza, correas biapoyadas.',
-    'Planta ${_f(lx, 2)} x ${_f(w, 2)} m; ${nb} vanos de ${_f(bay, 2)} m; altura libre ${_f(H, 2)} m; pendiente ${_f(s.slopePct)} % hacia la fachada trasera.',
+    'Planta ${_f(lx, 2)} x ${_f(w, 2)} m; $nb vanos de ${_f(bay, 2)} m; altura libre ${_f(H, 2)} m; pendiente ${_f(s.slopePct)} % hacia la fachada trasera.',
     'Cubierta: ${s.roofing}. Correas a ${_f(e, 2)} m.',
     noRoof
         ? 'Sin cubierta: sin nieve acumulada; mantenimiento 0,4 kN/m².'
@@ -1092,7 +1092,7 @@ Design _designMarquesina(StructureSpec s, String prompt) {
   ];
 
   final assembly = [
-    'Replanteo de ${nCols} apoyos (ejes a ${_f(bay, 2)} m en x y ${gridY.map((v) => _f(v, 2)).join(' / ')} m en y).',
+    'Replanteo de $nCols apoyos (ejes a ${_f(bay, 2)} m en x y ${gridY.map((v) => _f(v, 2)).join(' / ')} m en y).',
     'Ejecución de zapatas con pernos M$anchorD en plantilla, o taladro y anclaje químico si hay losa.',
     'Soldadura en taller de placas PA1, cartelas CR1 y placa de cabeza PC1 a cada pilar.',
     'Presentación y aplomado de pilares sobre tuercas de nivelación; apriete y grout.',
@@ -1411,7 +1411,7 @@ Design _designEntreplanta(StructureSpec s, String prompt) {
     'Apoyo sobre solera existente: comprobar espesor (≥ 15 cm) y capacidad del terreno con carga puntual de ${_f(ned / 1.45, 0)} kN aprox. por pilar.',
   ];
   final assembly = [
-    'Replanteo de ${nCols} pilares y comprobación de la solera (catas).',
+    'Replanteo de $nCols pilares y comprobación de la solera (catas).',
     'Presentación de pilares con placa PA1 soldada; taladro y anclaje químico; aplomado.',
     'Montaje de vigas principales sobre placas de cabeza PC1 (M16).',
     'Montaje de cruces de arriostramiento antes de cargar el forjado.',

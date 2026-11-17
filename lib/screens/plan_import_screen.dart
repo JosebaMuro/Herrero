@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
@@ -9,6 +10,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:printing/printing.dart';
 
 import '../ai/model_manager.dart';
+import '../ai/vlm.dart';
 import '../engine/designer.dart';
 import '../plans/ocr_engine.dart';
 import '../plans/pdf_text.dart';
@@ -34,6 +36,11 @@ class _PlanImportScreenState extends State<PlanImportScreen> {
   String _source = '';
   Uint8List? _preview;
   PlanAnalysis? _a;
+  PlanReading? _reading;
+  (Uint8List, int, int)? _raster; // imagen para la visión IA
+  String? _vision; // descripción del VLM (inglés)
+  String _seeing = ''; // texto parcial mientras genera
+  VlmJob? _job;
 
   @override
   void initState() {
@@ -43,8 +50,60 @@ class _PlanImportScreenState extends State<PlanImportScreen> {
 
   @override
   void dispose() {
+    _job?.cancel();
     _prompt.dispose();
     super.dispose();
+  }
+
+  /// Mira el dibujo con el VLM local y completa la descripción.
+  Future<void> _see() async {
+    final r = _raster;
+    if (r == null || _job != null) return;
+    await mgr.load();
+    if (!mgr.vlmReady) {
+      if (!mounted) return;
+      final go = await showDialog<bool>(
+        context: context,
+        builder: (c) => AlertDialog(
+          title: const Text('Falta el modelo de visión'),
+          content: const Text('Para interpretar croquis a mano hace falta descargar una vez el modelo de visión local '
+              '(260 MB el ligero, 515 MB el de calidad). Funciona sin conexión y la imagen no sale del dispositivo.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancelar')),
+            FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Ir a Modelos')),
+          ],
+        ),
+      );
+      if (go != true || !mounted) return;
+      await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const ModelsScreen()));
+      if (!mgr.vlmReady) return;
+    }
+    final dir = (await mgr.dir(mgr.vlm.subdir)).path;
+    final threads = (Platform.numberOfProcessors - 1).clamp(1, 6);
+    setState(() => _seeing = 'Mirando el dibujo…');
+    final job = startVlm(
+        VlmRequest(modelDir: dir, prefix: mgr.vlmPrefix, rgba: r.$1, width: r.$2, height: r.$3, threads: threads),
+        (partial) => mounted ? setState(() => _seeing = partial) : null);
+    _job = job;
+    try {
+      final res = await job.future;
+      if (!mounted) return;
+      final reading = _reading ?? PlanReading(const [], 'imagen-ocr');
+      final a = analyzePlan(reading, vision: res.text);
+      setState(() {
+        _vision = res.text;
+        _a = a;
+        _prompt.text = a.prompt;
+        _source = '$_source + visión IA (${(res.time.inMilliseconds / 1000).toStringAsFixed(0)} s)';
+      });
+    } catch (e) {
+      if (mounted && '$e' != 'Exception: Cancelado') {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('La visión IA no pudo leer el dibujo: $e')));
+      }
+    } finally {
+      _job = null;
+      if (mounted) setState(() => _seeing = '');
+    }
   }
 
   void _say(String s) {
@@ -105,6 +164,9 @@ class _PlanImportScreenState extends State<PlanImportScreen> {
       _file = name;
       _a = null;
       _preview = null;
+      _reading = null;
+      _raster = null;
+      _vision = null;
       _status = 'Abriendo el plano…';
     });
     try {
@@ -136,6 +198,7 @@ class _PlanImportScreenState extends State<PlanImportScreen> {
               break;
             }
           } catch (_) {}
+          _raster = (hi.pixels, hi.width, hi.height);
           reading = await _ocr(hi.pixels, hi.width, hi.height, 'pdf-ocr');
         }
       } else {
@@ -145,6 +208,7 @@ class _PlanImportScreenState extends State<PlanImportScreen> {
         final img = frame.image;
         final data = await img.toByteData(format: ui.ImageByteFormat.rawRgba);
         if (data == null) throw 'No se pudo leer la imagen.';
+        _raster = (data.buffer.asUint8List(), img.width, img.height);
         reading = await _ocr(data.buffer.asUint8List(), img.width, img.height, 'imagen-ocr');
         img.dispose();
       }
@@ -154,6 +218,7 @@ class _PlanImportScreenState extends State<PlanImportScreen> {
       }
       _say('Interpretando el plano…');
       final a = analyzePlan(reading);
+      _reading = reading;
       setState(() {
         _a = a;
         _source = switch (reading!.source) {
@@ -164,6 +229,8 @@ class _PlanImportScreenState extends State<PlanImportScreen> {
         _prompt.text = a.prompt;
         _status = '';
       });
+      // Croquis con poco texto: si el modelo de visión ya está, se usa solo.
+      if (_raster != null && reading.tokens.length < 12 && mgr.vlmReady) unawaited(_see());
     } catch (e) {
       _say('');
       if (mounted) {
@@ -278,6 +345,28 @@ class _PlanImportScreenState extends State<PlanImportScreen> {
                       Expanded(child: Text(w, style: const TextStyle(fontSize: 13))),
                     ]),
                   ),
+                if (_raster != null) ...[
+                  const SizedBox(height: 12),
+                  if (_job != null)
+                    Card(
+                      color: cs.secondaryContainer,
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+                          const SizedBox(width: 10),
+                          Expanded(child: Text(_seeing, style: const TextStyle(fontSize: 13))),
+                          TextButton(onPressed: () => _job?.cancel(), child: const Text('Parar')),
+                        ]),
+                      ),
+                    )
+                  else
+                    OutlinedButton.icon(
+                      onPressed: _busy ? null : _see,
+                      icon: const Icon(Icons.visibility_outlined),
+                      label: Text(_vision == null ? 'Interpretar el dibujo con visión IA (croquis a mano)' : 'Volver a mirar el dibujo'),
+                    ),
+                ],
                 const SizedBox(height: 16),
                 Text('Descripción para calcular (puedes corregirla)', style: tt.titleMedium),
                 const SizedBox(height: 6),
@@ -297,6 +386,12 @@ class _PlanImportScreenState extends State<PlanImportScreen> {
                   childrenPadding: const EdgeInsets.all(12),
                   children: [SelectableText(a.rawText.isEmpty ? '(vacío)' : a.rawText, style: const TextStyle(fontSize: 12))],
                 ),
+                if (_vision != null)
+                  ExpansionTile(
+                    title: const Text('Lo que ve la visión IA (en inglés)'),
+                    childrenPadding: const EdgeInsets.all(12),
+                    children: [SelectableText(_vision!, style: const TextStyle(fontSize: 12))],
+                  ),
               ],
             ]),
           ),
