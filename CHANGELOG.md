@@ -27,6 +27,7 @@
   car…» → «escalera de caracol»), corrige la palabra mal escrita y propone lo que suele seguir según
   la estructura.
 - Glosario ampliado con todos estos términos y sus sinónimos.
+- El título de la pantalla principal ya no se corta en móviles estrechos.
 
 ## 3.2.0
 
