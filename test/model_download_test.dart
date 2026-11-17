@@ -48,7 +48,7 @@ void main() {
         const MethodChannel('plugins.flutter.io/path_provider'), (call) async => dir);
     final mgr = ModelManager.instance;
     await mgr.fetchManifest();
-    expect(mgr.manifests.length, 3);
+    expect(mgr.manifests.length, 4);
     final ocr = catalog.firstWhere((m) => m.task == ModelTask.plans);
     await mgr.download(ocr);
     final st = mgr.status[ocr.id]!;
@@ -63,5 +63,13 @@ void main() {
     await mgr.download(ocr);
     expect(mgr.status[ocr.id]!.state, DlState.installed, reason: mgr.status[ocr.id]!.error);
     expect(rec.lengthSync(), mgr.fileSize(ocr, 'ppocrv4_rec.onnx'));
-  }, timeout: const Timeout(Duration(minutes: 5)));
+    // comprensión (embeddings) desde la release de razonamiento
+    final e5 = catalog.firstWhere((m) => m.task == ModelTask.understand);
+    await mgr.download(e5);
+    expect(mgr.status[e5.id]!.state, DlState.installed, reason: mgr.status[e5.id]!.error);
+    expect(mgr.embedReady, isTrue);
+    for (final f in e5.files) {
+      expect(File('$dir/models/reason/$f').lengthSync(), mgr.fileSize(e5, f));
+    }
+  }, timeout: const Timeout(Duration(minutes: 10)));
 }
