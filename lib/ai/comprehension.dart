@@ -68,7 +68,7 @@ class Comprehension {
         return _index!;
       }
     } catch (_) {}
-    final v = await embedTexts(EmbedRequest(dir, [for (final p in passages) p.$2], threads: threads));
+    final v = await embedTexts(EmbedRequest(dir, [for (final p in passages) p.$2], threads: threads, engine: ModelManager.instance.lightEngine));
     _index = [for (var i = 0; i < passages.length; i++) (passages[i].$1, v[i])];
     _indexKey = key;
     try {
@@ -87,7 +87,7 @@ class Comprehension {
     final dir = await _dir();
     final threads = (mgr.device?.recommendedThreads ?? 4).clamp(1, 4);
     final index = await _loadIndex(dir, threads);
-    final q = (await embedTexts(EmbedRequest(dir, ['query: ${prompt.trim()}'], threads: threads))).first;
+    final q = (await embedTexts(EmbedRequest(dir, ['query: ${prompt.trim()}'], threads: threads, engine: mgr.lightEngine))).first;
     return rankTypes(q, index);
   }
 
@@ -101,6 +101,7 @@ class Comprehension {
         prefix: mgr.reasoner.files.first.split('_').first,
         prompt: llmChat(prompt, type),
         threads: mgr.device?.recommendedThreads ?? 4,
+        engine: mgr.engine,
       ),
       onPartial,
     );

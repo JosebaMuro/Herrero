@@ -7,6 +7,7 @@ import 'dart:typed_data';
 
 import 'package:onnxruntime/onnxruntime.dart';
 
+import 'accel.dart';
 import 'bpe_tokenizer.dart';
 import 'ort_util.dart';
 
@@ -126,7 +127,8 @@ class EmbedRequest {
   final String prefix;
   final List<String> texts; // con su prefijo e5: 'query: ' o 'passage: '
   final int threads;
-  const EmbedRequest(this.modelDir, this.texts, {this.prefix = 'e5s', this.threads = 2});
+  final AiEngine engine;
+  const EmbedRequest(this.modelDir, this.texts, {this.prefix = 'e5s', this.threads = 2, this.engine = AiEngine.cpu});
 }
 
 /// Calcula los embeddings normalizados (síncrono; llamar en un isolate).
@@ -135,7 +137,7 @@ Future<List<Float32List>> runEmbedSync(EmbedRequest req) async {
   final tok = await UnigramTokenizer.fromFile(_p(req.modelDir, '${req.prefix}_tokenizer.json'));
   final cfg = jsonDecode(await File(_p(req.modelDir, '${req.prefix}_config.json')).readAsString()) as Map;
   final hidden = (cfg['hidden_size'] as num).toInt();
-  final s = ortOpen(_p(req.modelDir, '${req.prefix}_model_int8.onnx'), req.threads);
+  final s = ortOpen(_p(req.modelDir, '${req.prefix}_model_int8.onnx'), req.threads, req.engine);
   final ro = OrtRunOptions();
   final out = <Float32List>[];
   try {
@@ -181,7 +183,8 @@ Future<List<Float32List>> runEmbedSync(EmbedRequest req) async {
 }
 
 /// Embeddings en un isolate aparte.
-Future<List<Float32List>> embedTexts(EmbedRequest req) => Isolate.run(() => runEmbedSync(req));
+Future<List<Float32List>> embedTexts(EmbedRequest req) =>
+    Isolate.run(() => ortWithCpuFallback(req.engine, () => runEmbedSync(req)));
 
 double dot(Float32List a, Float32List b) {
   var s = 0.0;
@@ -201,6 +204,7 @@ class LlmRequest {
   final String prompt; // conversación completa ya formateada
   final int maxTokens;
   final int threads;
+  final AiEngine engine;
   final bool stopAtJsonEnd; // corta al cerrar el objeto JSON abierto por el prompt
   const LlmRequest({
     required this.modelDir,
@@ -208,6 +212,7 @@ class LlmRequest {
     required this.prompt,
     this.maxTokens = 120,
     this.threads = 4,
+    this.engine = AiEngine.cpu,
     this.stopAtJsonEnd = true,
   });
 }
@@ -271,7 +276,7 @@ Future<void> _llmEntry(List<dynamic> args) async {
   final SendPort sp = args[0];
   final LlmRequest req = args[1];
   try {
-    sp.send(await runLlmSync(req, sp.send));
+    sp.send(await ortWithCpuFallback(req.engine, () => runLlmSync(req, sp.send)));
   } catch (e) {
     sp.send(['$e']);
   }
@@ -319,7 +324,7 @@ Future<LlmResult> runLlmSync(LlmRequest req, [void Function(String)? onPartial])
   };
   final ids = tok.encode(req.prompt);
   final ro = OrtRunOptions();
-  final s = ortOpen(_p(req.modelDir, '${req.prefix}_model_int8.onnx'), req.threads);
+  final s = ortOpen(_p(req.modelDir, '${req.prefix}_model_int8.onnx'), req.threads, req.engine);
   final outNames = s.outputNames;
   final logitsIdx = outNames.indexOf('logits');
   var past = <String, OrtValue>{};

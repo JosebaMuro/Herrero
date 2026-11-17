@@ -6,34 +6,10 @@ import 'dart:typed_data';
 
 import 'package:onnxruntime/onnxruntime.dart';
 
+import 'accel.dart';
 import 'clip_tokenizer.dart';
 
-/// Motor de ejecución preferido.
-enum AiEngine { auto, cpu, nnapi }
-
-extension AiEngineLabel on AiEngine {
-  String get label {
-    switch (this) {
-      case AiEngine.auto:
-        return 'Automático';
-      case AiEngine.cpu:
-        return 'CPU';
-      case AiEngine.nnapi:
-        return 'NPU / GPU (NNAPI)';
-    }
-  }
-
-  String get help {
-    switch (this) {
-      case AiEngine.auto:
-        return 'Usa la NPU/GPU del móvil donde es fiable y la CPU para el resto.';
-      case AiEngine.cpu:
-        return 'Solo procesador. El más compatible.';
-      case AiEngine.nnapi:
-        return 'Fuerza la aceleración Android NNAPI en todos los pasos (si falla, vuelve a CPU).';
-    }
-  }
-}
+export 'accel.dart' show AiEngine, AiEngineLabel, enginesForPlatform;
 
 /// Petición de generación (se envía al isolate de trabajo).
 class SdRequest {
@@ -227,34 +203,17 @@ String _p(String dir, String f) => '$dir${Platform.pathSeparator}$f';
 class _Model {
   final String path;
   final SdRequest req;
-  bool accel;
+  final bool quantized;
+  AiEngine engine;
+  OrtEp ep = OrtEp.cpu;
   OrtSession? _s;
-  _Model(this.path, this.req, this.accel);
-
-  OrtSession _open(bool useNnapi) {
-    final o = OrtSessionOptions()
-      ..setIntraOpNumThreads(req.threads)
-      ..setInterOpNumThreads(1)
-      ..setSessionGraphOptimizationLevel(GraphOptimizationLevel.ortEnableAll);
-    try {
-      if (useNnapi) o.appendNnapiProvider(NnapiFlags.cpuDisabled);
-      o.appendCPUProvider(CPUFlags.useArena);
-      return OrtSession.fromFile(File(path), o);
-    } finally {
-      o.release();
-    }
-  }
+  _Model(this.path, this.req, {required this.quantized}) : engine = req.engine;
 
   OrtSession get session {
     if (_s != null) return _s!;
-    if (accel) {
-      try {
-        return _s = _open(true);
-      } catch (_) {
-        accel = false;
-      }
-    }
-    return _s = _open(false);
+    final o = ortOpenAccel(path, req.threads, engine, quantized: quantized);
+    ep = o.ep;
+    return _s = o.session;
   }
 
   Float32List run(OrtRunOptions ro, Map<String, OrtValue> inputs) {
@@ -262,10 +221,10 @@ class _Model {
     try {
       outs = session.run(ro, inputs);
     } catch (e) {
-      if (!accel) rethrow;
+      if (ep == OrtEp.cpu) rethrow;
       // la aceleración ha fallado en ejecución: reintento en CPU
       release();
-      accel = false;
+      engine = AiEngine.cpu;
       outs = session.run(ro, inputs);
     }
     final r = _flat(outs[0]!.value);
@@ -284,11 +243,9 @@ class _Model {
 Future<SdResult> _run(SdRequest req, void Function(double, String) progress) async {
   final sw = Stopwatch()..start();
   OrtEnv.instance.init();
-  final android = Platform.isAndroid;
-  // Política de motor: los modelos int8 dinámicos (texto, UNet) no los admite NNAPI,
-  // así que en "Automático" solo se acelera el VAE (fp32).
-  final accelAll = android && req.engine == AiEngine.nnapi;
-  final accelVae = android && req.engine != AiEngine.cpu;
+  // Política de motor (accelChain): los modelos int8 dinámicos (texto, UNet) no los
+  // admite NNAPI, así que en Android "Automático" solo acelera el VAE (fp32). En PC la
+  // GPU (DirectML, CUDA u OpenVINO) se usa para todos.
   final used = <String>{};
   final ro = OrtRunOptions();
 
@@ -296,11 +253,11 @@ Future<SdResult> _run(SdRequest req, void Function(double, String) progress) asy
   progress(0.03, 'Interpretando la descripción…');
   final tok = await ClipTokenizer.fromDir(req.modelDir);
   final ids = tok.encode(req.prompt);
-  final te = _Model(_p(req.modelDir, req.textEncoderFile), req, accelAll);
+  final te = _Model(_p(req.modelDir, req.textEncoderFile), req, quantized: true);
   final idsT = OrtValueTensor.createTensorWithDataList(Int64List.fromList(ids), [1, 77]);
   final emb = te.run(ro, {'input_ids': idsT});
   idsT.release();
-  used.add(te.accel ? 'NNAPI' : 'CPU');
+  used.add(te.ep.label);
   te.release();
 
   final size = req.size;
@@ -325,11 +282,11 @@ Future<SdResult> _run(SdRequest req, void Function(double, String) progress) asy
       img[plane + o] = px[i + 1] / 127.5 - 1;
       img[2 * plane + o] = px[i + 2] / 127.5 - 1;
     }
-    final enc = _Model(_p(req.modelDir, req.vaeEncoderFile), req, accelVae);
+    final enc = _Model(_p(req.modelDir, req.vaeEncoderFile), req, quantized: false);
     final t = OrtValueTensor.createTensorWithDataList(img, [1, 3, size, size]);
     final e = enc.run(ro, {'sample': t});
     t.release();
-    used.add(enc.accel ? 'NNAPI' : 'CPU');
+    used.add(enc.ep.label);
     enc.release();
     final s0 = sig[ts.first];
     for (var i = 0; i < n; i++) {
@@ -344,7 +301,7 @@ Future<SdResult> _run(SdRequest req, void Function(double, String) progress) asy
 
   // 3) Difusión (UNet)
   progress(0.22, 'Cargando el modelo de imagen…');
-  final unet = _Model(_p(req.modelDir, req.unetFile), req, accelAll);
+  final unet = _Model(_p(req.modelDir, req.unetFile), req, quantized: true);
   unet.session; // carga explícita (lo más lento la primera vez)
   final embT = OrtValueTensor.createTensorWithDataList(emb, [1, 77, emb.length ~/ 77]);
   for (var i = 0; i < ts.length; i++) {
@@ -370,12 +327,12 @@ Future<SdResult> _run(SdRequest req, void Function(double, String) progress) asy
     lat = nl;
   }
   embT.release();
-  used.add(unet.accel ? 'NNAPI' : 'CPU');
+  used.add(unet.ep.label);
   unet.release();
 
   // 4) Decodificar
   progress(0.8, 'Revelando la imagen…');
-  final dec = _Model(_p(req.modelDir, req.vaeDecoderFile), req, accelVae);
+  final dec = _Model(_p(req.modelDir, req.vaeDecoderFile), req, quantized: false);
   final z = Float32List(n);
   for (var j = 0; j < n; j++) {
     z[j] = lat[j] / req.vaeScale;
@@ -383,7 +340,7 @@ Future<SdResult> _run(SdRequest req, void Function(double, String) progress) asy
   final zT = OrtValueTensor.createTensorWithDataList(z, [1, 4, h, w]);
   final out = dec.run(ro, {'latent_sample': zT});
   zT.release();
-  used.add(dec.accel ? 'NNAPI' : 'CPU');
+  used.add(dec.ep.label);
   dec.release();
   ro.release();
   OrtEnv.instance.release();
@@ -398,6 +355,7 @@ Future<SdResult> _run(SdRequest req, void Function(double, String) progress) asy
     rgba[o * 4 + 3] = 255;
   }
   progress(1, 'Listo');
-  final engine = used.contains('NNAPI') ? 'NNAPI + CPU (${req.threads} hilos)' : 'CPU (${req.threads} hilos)';
+  final accel = used.where((u) => u != 'CPU').toList();
+  final engine = accel.isEmpty ? 'CPU (${req.threads} hilos)' : '${accel.join(' + ')} + CPU (${req.threads} hilos)';
   return SdResult(rgba, size, sw.elapsed, engine);
 }

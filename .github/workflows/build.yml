@@ -76,6 +76,16 @@ jobs:
       - name: ONNX Runtime 1.20 (operadores del VLM)
         run: python scripts/ort_runtime.py windows
       - run: flutter build windows --release
+      - name: Comprobar ONNX Runtime con DirectML (GPU) y vuelta a CPU
+        shell: pwsh
+        run: |
+          foreach ($f in 'onnxruntime.dll','DirectML.dll') {
+            if (-not (Test-Path "build/windows/x64/runner/Release/$f")) { Write-Error "falta $f en el paquete"; exit 1 }
+          }
+          $env:HERRERO_ORT_DIR = (Resolve-Path build/windows/x64/runner/Release).Path
+          $env:HERRERO_ORT_TEST = '1'
+          $env:HERRERO_ORT_ENGINE = 'directml'
+          flutter test test/accel_test.dart
       - name: Portable ZIP
         shell: pwsh
         run: Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath Herrero-windows-portable.zip

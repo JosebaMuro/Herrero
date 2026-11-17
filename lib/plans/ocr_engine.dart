@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import 'package:onnxruntime/onnxruntime.dart';
 
+import '../ai/accel.dart';
 import 'plan_token.dart';
 
 /// Petición de OCR: imagen RGBA en memoria y carpeta de modelos.
@@ -14,6 +15,7 @@ class OcrRequest {
   final int width, height;
   final int maxSide; // lado máximo para el detector
   final int threads;
+  final AiEngine engine;
   const OcrRequest({
     required this.modelDir,
     required this.rgba,
@@ -21,22 +23,22 @@ class OcrRequest {
     required this.height,
     this.maxSide = 1920,
     this.threads = 4,
+    this.engine = AiEngine.cpu,
   });
 }
 
 /// Lector OCR local (PP-OCRv4: detector DB + reconocedor CTC) sobre ONNX Runtime.
 /// Se ejecuta en un isolate para no bloquear la interfaz.
-Future<List<PlanToken>> runOcr(OcrRequest r) => Isolate.run(() => ocrSync(r));
+Future<List<PlanToken>> runOcr(OcrRequest r) =>
+    Isolate.run(() => ortWithCpuFallback(r.engine, () async => ocrSync(r)));
 
 List<PlanToken> ocrSync(OcrRequest r) {
   OrtEnv.instance.init();
-  final opts = OrtSessionOptions()
-    ..setIntraOpNumThreads(r.threads)
-    ..setInterOpNumThreads(1)
-    ..setSessionGraphOptimizationLevel(GraphOptimizationLevel.ortEnableAll);
   final sep = Platform.pathSeparator;
-  final det = OrtSession.fromFile(File('${r.modelDir}${sep}ppocrv4_det.onnx'), opts);
-  final rec = OrtSession.fromFile(File('${r.modelDir}${sep}ppocrv4_rec.onnx'), opts);
+  // tamaños de entrada variables: en Android "Automático" (quantized) se queda en CPU,
+  // NNAPI los lleva mal; en PC va a la GPU.
+  final det = ortOpenAccel('${r.modelDir}${sep}ppocrv4_det.onnx', r.threads, r.engine).session;
+  final rec = ortOpenAccel('${r.modelDir}${sep}ppocrv4_rec.onnx', r.threads, r.engine).session;
   final keys = File('${r.modelDir}${sep}ppocr_keys.txt').readAsStringSync().split('\n')..add(' ');
   final ro = OrtRunOptions();
   try {
@@ -64,7 +66,6 @@ List<PlanToken> ocrSync(OcrRequest r) {
     ro.release();
     det.release();
     rec.release();
-    opts.release();
   }
 }
 

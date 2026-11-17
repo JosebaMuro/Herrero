@@ -14,6 +14,7 @@ import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'accel.dart';
 import 'sd_pipeline.dart';
 
 const modelsRelease = 'https://github.com/JosebaMuro/Herrero/releases/download/models-sdturbo-v1';
@@ -371,7 +372,7 @@ class DeviceProfile {
   int get recommendedSize => isMobile && (ramGb <= 0 || ramGb < 8) ? 384 : 512;
 
   /// Motor recomendado.
-  AiEngine get recommendedEngine => Platform.isAndroid ? AiEngine.auto : AiEngine.cpu;
+  AiEngine get recommendedEngine => AiEngine.auto;
 
   /// Hilos de cálculo recomendados (deja núcleos libres para la interfaz).
   int get recommendedThreads => math.max(1, math.min(isMobile ? 4 : 8, cores - (isMobile ? 2 : 1)));
@@ -442,9 +443,18 @@ class ModelManager extends ChangeNotifier {
       final sp = await SharedPreferences.getInstance();
       activeId = sp.getString('ai.active');
       size = sp.getInt('ai.size') ?? device!.recommendedSize;
-      engine = AiEngine.values[sp.getInt('ai.engine') ?? device!.recommendedEngine.index];
+      // 'ai.accel' desde v3.5; antes 'ai.engine' (en PC siempre era CPU: se pasa a Automático)
+      final saved = sp.getInt('ai.accel') ?? (Platform.isAndroid ? sp.getInt('ai.engine') : null);
+      engine = saved != null && saved >= 0 && saved < AiEngine.values.length
+          ? AiEngine.values[saved]
+          : device!.recommendedEngine;
+      if (!enginesForPlatform().contains(engine)) engine = AiEngine.auto;
       fidelity = (sp.getInt('ai.fidelity') ?? 1).clamp(0, 2);
     } catch (_) {}
+    if (Platform.isWindows) {
+      await GpuPacks.instance.load();
+      GpuPacks.instance.syncRuntime(engine);
+    }
     for (final (rel, sub) in _releases) {
       final d = await dir(sub);
       final mf = File('${d.path}${Platform.pathSeparator}manifest.json');
@@ -471,9 +481,10 @@ class ModelManager extends ChangeNotifier {
       final sp = await SharedPreferences.getInstance();
       if (activeId != null) await sp.setString('ai.active', activeId!);
       await sp.setInt('ai.size', size);
-      await sp.setInt('ai.engine', engine.index);
+      await sp.setInt('ai.accel', engine.index);
       await sp.setInt('ai.fidelity', fidelity);
     } catch (_) {}
+    GpuPacks.instance.syncRuntime(engine);
     notifyListeners();
   }
 
@@ -609,6 +620,43 @@ class ModelManager extends ChangeNotifier {
 
   static const _maxAttempts = 4;
 
+  /// Descarga un fichero suelto con reintentos, reanudación y SHA-256 (paquetes de
+  /// aceleración). [onBytes] recibe los bytes acumulados.
+  Future<void> fetchVerified(String url, File target, int size, String sha,
+      void Function(int got) onBytes, bool Function() cancelled) async {
+    final part = File('${target.path}.part');
+    final client = http.Client();
+    try {
+      for (var attempt = 1;; attempt++) {
+        var have = part.existsSync() ? part.lengthSync() : 0;
+        if (have > size) {
+          part.deleteSync();
+          have = 0;
+        }
+        if (have >= size) break;
+        try {
+          await _fetchInto(client, url, part, have, size, onBytes, cancelled);
+          break;
+        } on _Cancelled {
+          throw Exception('Cancelado');
+        } catch (e) {
+          final network = e is SocketException || e is http.ClientException || e is TimeoutException;
+          if (!network || attempt >= _maxAttempts) rethrow;
+          await Future<void>.delayed(Duration(seconds: 2 * attempt));
+          if (cancelled()) throw Exception('Cancelado');
+        }
+      }
+    } finally {
+      client.close();
+    }
+    if (!await _verify(part.path, sha)) {
+      part.deleteSync();
+      throw Exception('El fichero ${target.uri.pathSegments.last} está dañado (SHA-256 incorrecto). Vuelve a intentarlo.');
+    }
+    if (target.existsSync()) target.deleteSync();
+    part.renameSync(target.path);
+  }
+
   /// Descarga [url] en [part] desde el byte [have] (reanudación con Range).
   Future<void> _fetchInto(http.Client client, String url, File part, int have, int expSize,
       void Function(int got) onBytes, bool Function() cancelled) async {
@@ -712,6 +760,10 @@ class ModelManager extends ChangeNotifier {
       engine: engine,
     );
   }
+
+  /// Motor para los modelos pequeños o de tamaño variable (embeddings, OCR): en
+  /// Automático van en CPU, donde arrancan antes que en la GPU y rinden igual.
+  AiEngine get lightEngine => engine == AiEngine.auto ? AiEngine.cpu : engine;
 
   bool get ready => active != null && status[active!.id]?.state == DlState.installed;
 

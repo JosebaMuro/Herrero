@@ -1,5 +1,27 @@
 # Historial de versiones
 
+## 3.5.0
+
+- **Aceleración por GPU y NPU** para toda la IA local (foto realista, croquis, razonamiento, OCR y
+  comprensión). Nuevo apartado «Aceleración de la IA» en Modelos IA con Automático, motores manuales
+  y «Solo CPU». Si el motor elegido no admite un modelo o falla, ese paso sigue en CPU solo.
+- **Windows**:
+  - ONNX Runtime 1.20.1 con **DirectML** de serie (DirectX 12): acelera con gráficas NVIDIA, AMD e
+    Intel, también las integradas. El instalador añade DirectML.dll (unos 18 MB).
+  - **NVIDIA CUDA** como descarga opcional: ONNX Runtime GPU de Microsoft y, si el equipo no tiene
+    CUDA 12 / cuDNN 9, las librerías oficiales de NVIDIA. Se guarda en %LOCALAPPDATA%\Herrero\gpu.
+  - **Intel OpenVINO** como descarga opcional (paquete oficial de Intel con el runtime de OpenVINO),
+    para Iris Xe, Arc y la NPU de Core Ultra. Guarda en caché los modelos compilados.
+  - En Automático se usa CUDA u OpenVINO si su paquete está instalado y está esa gráfica; si no,
+    DirectML. Cambiar de paquete pide reiniciar la app (un proceso solo puede cargar un ONNX Runtime).
+  - Se mantiene la carga del ONNX Runtime por ruta completa (nunca el de System32).
+  - **AMD ROCm** y **Vulkan** no existen como motores de ONNX Runtime en Windows: las Radeon van por
+    DirectML.
+- **Android**: además de NNAPI, motor **XNNPACK** (CPU ARM optimizada). Automático conserva el
+  reparto fiable (NNAPI solo en los modelos que lo admiten).
+- En PC, Automático pasa a usar la GPU (antes siempre CPU). Los modelos pequeños (comprensión y
+  OCR) siguen en CPU en Automático porque arrancan antes y rinden igual.
+
 ## 3.4.1
 
 - **Windows**: el razonamiento con IA local (Qwen3) fallaba con «Unrecognized attribute: softcap for

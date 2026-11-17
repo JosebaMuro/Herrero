@@ -2,8 +2,8 @@ import 'dart:io';
 
 import 'package:material_ui/material_ui.dart';
 
+import '../ai/accel.dart';
 import '../ai/model_manager.dart';
-import '../ai/sd_pipeline.dart';
 
 /// Gestor de modelos de IA local: qué pasos usan IA, qué modelo conviene a
 /// este equipo, descarga reanudable y ajustes de ejecución.
@@ -152,6 +152,8 @@ class _ModelsScreenState extends State<ModelsScreen> {
                   ),
               ],
               const SizedBox(height: 8),
+              const _AccelCard(),
+              const SizedBox(height: 8),
               _SettingsCard(dev: dev),
               const SizedBox(height: 12),
               Text(
@@ -196,7 +198,11 @@ class _DeviceCard extends StatelessWidget {
             Chip(avatar: const Icon(Icons.sd_storage, size: 18), label: Text('Libre ${gb(dev.freeDiskGb)}')),
             Chip(
                 avatar: const Icon(Icons.bolt, size: 18),
-                label: Text(Platform.isAndroid ? 'CPU + NPU/GPU (NNAPI)' : 'CPU (${dev.recommendedThreads} hilos)')),
+                label: Text(Platform.isAndroid
+                    ? 'CPU + NPU/GPU (NNAPI)'
+                    : (GpuPacks.instance.gpus.isEmpty
+                        ? 'CPU (${dev.recommendedThreads} hilos)'
+                        : GpuPacks.instance.gpus.join(' · ')))),
           ]),
           const SizedBox(height: 10),
           Text.rich(TextSpan(children: [
@@ -419,27 +425,189 @@ class _SettingsCard extends StatelessWidget {
             padding: const EdgeInsets.only(top: 4),
             child: Text(fidelityHelp[mgr.fidelity], style: t.bodySmall),
           ),
-          const SizedBox(height: 14),
-          Text('Motor de cálculo', style: t.labelLarge),
-          const SizedBox(height: 6),
-          if (Platform.isAndroid) ...[
-            SegmentedButton<AiEngine>(
-              segments: [for (final e in AiEngine.values) ButtonSegment(value: e, label: Text(e.label))],
-              selected: {mgr.engine},
-              onSelectionChanged: (v) {
-                mgr.engine = v.first;
-                mgr.savePrefs();
-              },
-            ),
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: Text(mgr.engine.help, style: t.bodySmall),
-            ),
-          ] else
-            Text('En PC se usa la CPU con ${dev.recommendedThreads} hilos (optimizado AVX2 / int8).',
-                style: t.bodyMedium),
         ]),
       ),
     );
+  }
+}
+
+/// Aceleración de toda la IA local: motor (CPU, GPU, NPU) y paquetes opcionales.
+class _AccelCard extends StatefulWidget {
+  const _AccelCard();
+  @override
+  State<_AccelCard> createState() => _AccelCardState();
+}
+
+class _AccelCardState extends State<_AccelCard> {
+  final mgr = ModelManager.instance;
+  final packs = GpuPacks.instance;
+
+  void _snack(String m) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
+  }
+
+  Future<void> _install(GpuPack p) async {
+    final size = packs.sizeOf(p);
+    final dev = mgr.device;
+    if (dev != null && dev.freeDiskGb > 0 && dev.freeDiskGb * 1e9 < size * 2.2) {
+      _snack('No hay espacio suficiente: la descarga ocupa ${fmtBytes(size)} y se necesita otro tanto al '
+          'descomprimir.');
+      return;
+    }
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: Text('Descargar «${p.name}»'),
+        content: Text('${p.summary}\n\nDescarga: ${fmtBytes(size)}. Se guarda aparte del programa y se puede '
+            'borrar cuando quieras.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancelar')),
+          FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Descargar')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await packs.install(p);
+    final st = packs.status[p.id];
+    if (st?.state == DlState.installed) {
+      if (mgr.engine != AiEngine.auto) mgr.engine = p.engine;
+      await mgr.savePrefs();
+      _snack('«${p.name}» instalado. Reinicia Herrero para usarlo.');
+    } else if (st?.state == DlState.error) {
+      _snack(st!.error ?? 'Error en la descarga');
+    }
+  }
+
+  Future<void> _remove(GpuPack p) async {
+    final err = await packs.remove(p);
+    if (err != null) {
+      _snack(err);
+    } else {
+      await mgr.savePrefs();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context).textTheme;
+    final cs = Theme.of(context).colorScheme;
+    return ListenableBuilder(
+      listenable: packs,
+      builder: (context, _) {
+        final restart = Platform.isWindows && packs.needsRestart(mgr.engine);
+        final missing = switch (mgr.engine) {
+          AiEngine.cuda => !packs.installed('cuda'),
+          AiEngine.openvino => !packs.installed('openvino'),
+          _ => false,
+        };
+        return Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('Aceleración de la IA (CPU, GPU o NPU)', style: t.titleMedium),
+              const SizedBox(height: 4),
+              Text('Se aplica a todos los modelos. Si la aceleración no admite un modelo o falla, '
+                  'ese paso se hace en la CPU automáticamente.', style: t.bodySmall),
+              const SizedBox(height: 10),
+              Wrap(spacing: 8, runSpacing: 6, children: [
+                for (final e in enginesForPlatform())
+                  ChoiceChip(
+                    label: Text(e.label),
+                    selected: mgr.engine == e,
+                    onSelected: (_) async {
+                      mgr.engine = e;
+                      await mgr.savePrefs();
+                      if (mounted) setState(() {});
+                    },
+                  ),
+              ]),
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(mgr.engine.help, style: t.bodySmall),
+              ),
+              if (missing)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text('Descarga su paquete aquí abajo; mientras tanto se usa DirectML o la CPU.',
+                      style: t.bodySmall?.copyWith(color: cs.error)),
+                ),
+              if (restart)
+                Card(
+                  color: cs.tertiaryContainer,
+                  margin: const EdgeInsets.only(top: 10),
+                  child: const ListTile(
+                    leading: Icon(Icons.restart_alt),
+                    title: Text('Reinicia Herrero para cambiar de motor'),
+                    subtitle: Text('La IA ya se ha usado en esta sesión con otro motor.'),
+                  ),
+                ),
+              if (Platform.isWindows) ...[
+                const SizedBox(height: 14),
+                Text('Paquetes opcionales', style: t.labelLarge),
+                const SizedBox(height: 4),
+                for (final p in gpuPacks) _packTile(p),
+                const SizedBox(height: 8),
+                Text(
+                  'AMD: ROCm y MIGraphX solo existen para Linux en ONNX Runtime, así que en Windows las gráficas '
+                  'AMD (Radeon) usan DirectML. Vulkan no es un motor de ONNX Runtime; DirectML cumple ese papel '
+                  'en Windows con cualquier gráfica.',
+                  style: t.bodySmall,
+                ),
+              ],
+              if (Platform.isAndroid) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'En Android la GPU y la NPU se usan a través de NNAPI (lo que ofrece el fabricante del móvil). '
+                  'ONNX Runtime no tiene motor Vulkan; XNNPACK acelera la CPU.',
+                  style: t.bodySmall,
+                ),
+              ],
+            ]),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _packTile(GpuPack p) {
+    final st = packs.status[p.id] ?? ModelStatus(DlState.notInstalled);
+    final size = packs.sizeOf(p);
+    final fit = switch (p.id) {
+      'cuda' => hasNvidia(packs.gpus),
+      'openvino' => hasIntelGpu(packs.gpus),
+      _ => true,
+    };
+    Widget trailing;
+    switch (st.state) {
+      case DlState.downloading:
+      case DlState.verifying:
+        trailing = IconButton(
+            tooltip: 'Cancelar', onPressed: () => packs.cancel(p.id), icon: const Icon(Icons.close));
+      case DlState.installed:
+        trailing = IconButton(
+            tooltip: 'Borrar', onPressed: () => _remove(p), icon: const Icon(Icons.delete_outline));
+      default:
+        trailing = IconButton(
+            tooltip: 'Descargar', onPressed: () => _install(p), icon: const Icon(Icons.download));
+    }
+    final sub = switch (st.state) {
+      DlState.installed => 'Instalado',
+      DlState.downloading =>
+        'Descargando ${(st.progress * 100).toStringAsFixed(0)} % de ${fmtBytes(st.bytesTotal)}',
+      DlState.verifying => 'Comprobando y descomprimiendo…',
+      DlState.error => st.error ?? 'Error',
+      DlState.notInstalled => '${fmtBytes(size)} · ${fit ? 'compatible con tu gráfica' : 'no se ha detectado esa gráfica'}',
+    };
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      ListTile(
+        contentPadding: EdgeInsets.zero,
+        leading: Icon(Icons.memory, color: fit ? null : Theme.of(context).disabledColor),
+        title: Text(p.name),
+        subtitle: Text(sub),
+        trailing: trailing,
+      ),
+      if (st.state == DlState.downloading) LinearProgressIndicator(value: st.progress),
+    ]);
   }
 }

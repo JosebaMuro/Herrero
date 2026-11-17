@@ -2,16 +2,26 @@
 la versión 1.20 (misma API C, compatible hacia atrás), necesaria para los
 operadores del VLM (GroupQueryAttention, MultiHeadAttention…).
 
+En Windows se usa la compilación con DirectML (GPU de cualquier marca: NVIDIA,
+AMD e Intel, por DirectX 12) más DirectML.dll; en CPU funciona igual que la normal.
+Los paquetes CUDA y OpenVINO no van en el instalador: la app los descarga aparte.
+
 Uso (después de `flutter pub get`):
     python scripts/ort_runtime.py android|windows|linux|ios
 
 En iOS no hay biblioteca que copiar: el paquete enlaza el pod
 `onnxruntime-objc` (estático) y aquí se cambia su versión en el podspec.
 """
-import io, json, os, shutil, sys, tarfile, urllib.request, zipfile
+import hashlib, io, json, os, shutil, sys, tarfile, urllib.request, zipfile
 
 ANDROID = 'https://repo1.maven.org/maven2/com/microsoft/onnxruntime/onnxruntime-android/1.20.0/onnxruntime-android-1.20.0.aar'
-WINDOWS = 'https://github.com/microsoft/onnxruntime/releases/download/v1.20.1/onnxruntime-win-x64-1.20.1.zip'
+# ONNX Runtime 1.20.1 con DirectML y DirectML 1.15.2 (la versión que pide su nuspec)
+WINDOWS = ('https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime.directml/1.20.1/'
+           'microsoft.ml.onnxruntime.directml.1.20.1.nupkg',
+           '6763468507b7cfc777b1334b3e174c11a540ddacb7bd4354bc2e0ec89e56eec2')
+DIRECTML = ('https://api.nuget.org/v3-flatcontainer/microsoft.ai.directml/1.15.2/'
+            'microsoft.ai.directml.1.15.2.nupkg',
+            '9f07482559087088a4dba4ae76eeeee1fad3f7077a92ccfbdb439c6bc2964c09')
 LINUX = 'https://github.com/microsoft/onnxruntime/releases/download/v1.20.1/onnxruntime-linux-x64-1.20.1.tgz'
 
 
@@ -28,10 +38,13 @@ def package_dir():
     raise SystemExit('paquete onnxruntime no encontrado')
 
 
-def get(url):
+def get(url, sha256=None):
     print('descargando', url)
     with urllib.request.urlopen(url) as r:
-        return r.read()
+        data = r.read()
+    if sha256 and hashlib.sha256(data).hexdigest() != sha256:
+        raise SystemExit('SHA-256 incorrecto: ' + url)
+    return data
 
 
 UTF8_PATH = 'modelFile.path.toNativeUtf8().cast<ffi.Char>()'
@@ -57,21 +70,45 @@ def patch_wide_path(pkg):
 DLL_BY_NAME = "DynamicLibrary.open('onnxruntime.dll')"
 DLL_BY_PATH = ("DynamicLibrary.open(File(Platform.resolvedExecutable).parent.path"
                " + r'\\onnxruntime.dll')")
+DLL_LOADER = 'herreroOpenOrt()'
 
 
-def patch_dll_path(pkg):
+def patch_dll_loader(pkg):
     """Windows trae su propio onnxruntime.dll (antiguo) en System32 y algunos componentes
     del sistema lo cargan en el proceso. Abrirlo solo por nombre devuelve ese módulo ya
     cargado en vez del 1.20 que va junto a herrero.exe, y Qwen3 falla con «Unrecognized
-    attribute: softcap for operator GroupQueryAttention». Se abre por ruta completa."""
-    src = os.path.join(pkg, 'lib', 'src', 'bindings', 'bindings.dart')
+    attribute: softcap for operator GroupQueryAttention». Se abre siempre por ruta completa
+    con scripts/ort_loader.dart, que además elige el paquete de aceleración (CUDA u
+    OpenVINO) si el usuario lo ha instalado y seleccionado."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    bdir = os.path.join(pkg, 'lib', 'src', 'bindings')
+    shutil.copyfile(os.path.join(here, 'ort_loader.dart'), os.path.join(bdir, 'herrero_loader.dart'))
+    src = os.path.join(bdir, 'bindings.dart')
     text = open(src, encoding='utf-8').read()
-    if DLL_BY_PATH not in text:
-        if DLL_BY_NAME not in text:
+    if DLL_LOADER not in text:
+        for old in (DLL_BY_NAME, DLL_BY_PATH):
+            if old in text:
+                text = text.replace(old, DLL_LOADER)
+                break
+        else:
             raise SystemExit('bindings.dart inesperado: ' + src)
-        text = text.replace(DLL_BY_NAME, DLL_BY_PATH)
+        text = text.replace("import 'dart:io';", "import 'dart:io';\nimport 'herrero_loader.dart';", 1)
         open(src, 'w', encoding='utf-8').write(text)
-    print('  ->', src, 'onnxruntime.dll por ruta completa')
+    print('  ->', src, 'onnxruntime.dll por ruta completa (herrero_loader.dart)')
+
+
+def patch_bundle_directml(pkg):
+    """El plugin solo empaqueta onnxruntime.dll: se añade DirectML.dll junto a herrero.exe."""
+    src = os.path.join(pkg, 'windows', 'CMakeLists.txt')
+    text = open(src, encoding='utf-8').read()
+    one = '"${CMAKE_CURRENT_SOURCE_DIR}/onnxruntime.dll"'
+    both = one + '\n  "${CMAKE_CURRENT_SOURCE_DIR}/DirectML.dll"'
+    if 'DirectML.dll' not in text:
+        if one not in text:
+            raise SystemExit('CMakeLists.txt del plugin inesperado: ' + src)
+        text = text.replace(one, both, 1)
+        open(src, 'w', encoding='utf-8').write(text)
+    print('  ->', src, 'empaqueta DirectML.dll')
 
 
 def main(platform):
@@ -85,14 +122,17 @@ def main(platform):
                 shutil.copyfileobj(src, out)
             print('  ->', dst, os.path.getsize(dst))
     elif platform == 'windows':
-        z = zipfile.ZipFile(io.BytesIO(get(WINDOWS)))
-        name = next(n for n in z.namelist() if n.endswith('lib/onnxruntime.dll'))
-        dst = os.path.join(pkg, 'windows', 'onnxruntime.dll')
-        with z.open(name) as src, open(dst, 'wb') as out:
-            shutil.copyfileobj(src, out)
-        print('  ->', dst, os.path.getsize(dst))
+        ort = zipfile.ZipFile(io.BytesIO(get(*WINDOWS)))
+        dml = zipfile.ZipFile(io.BytesIO(get(*DIRECTML)))
+        for z, name, out in ((ort, 'runtimes/win-x64/native/onnxruntime.dll', 'onnxruntime.dll'),
+                             (dml, 'bin/x64-win/DirectML.dll', 'DirectML.dll')):
+            dst = os.path.join(pkg, 'windows', out)
+            with z.open(name) as src, open(dst, 'wb') as f:
+                shutil.copyfileobj(src, f)
+            print('  ->', dst, os.path.getsize(dst))
         patch_wide_path(pkg)
-        patch_dll_path(pkg)
+        patch_dll_loader(pkg)
+        patch_bundle_directml(pkg)
     elif platform == 'linux':
         t = tarfile.open(fileobj=io.BytesIO(get(LINUX)))
         m = next(m for m in t.getmembers() if m.name.endswith('lib/libonnxruntime.so.1.20.1'))

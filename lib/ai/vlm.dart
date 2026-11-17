@@ -7,6 +7,7 @@ import 'dart:typed_data';
 
 import 'package:onnxruntime/onnxruntime.dart';
 
+import 'accel.dart';
 import 'bpe_tokenizer.dart';
 import 'ort_util.dart';
 
@@ -25,6 +26,7 @@ class VlmRequest {
   final String question;
   final int maxTokens;
   final int threads;
+  final AiEngine engine;
   final double repetitionPenalty;
   const VlmRequest({
     required this.modelDir,
@@ -35,6 +37,7 @@ class VlmRequest {
     this.question = sketchQuestion,
     this.maxTokens = 120,
     this.threads = 4,
+    this.engine = AiEngine.cpu,
     this.repetitionPenalty = 1.15,
   });
 }
@@ -95,7 +98,7 @@ Future<void> _entry(List<dynamic> args) async {
   final SendPort sp = args[0];
   final VlmRequest req = args[1];
   try {
-    sp.send(await runVlmSync(req, sp.send));
+    sp.send(await ortWithCpuFallback(req.engine, () => runVlmSync(req, sp.send)));
   } catch (e) {
     sp.send(['$e']);
   }
@@ -177,7 +180,7 @@ Future<VlmResult> runVlmSync(VlmRequest req, [void Function(String)? onPartial])
   OrtSession? vis, emb, dec;
   try {
     // 1) imagen -> 64 vectores
-    vis = ortOpen(_p(req.modelDir, '${req.prefix}_vision_int8.onnx'), req.threads);
+    vis = ortOpen(_p(req.modelDir, '${req.prefix}_vision_int8.onnx'), req.threads, req.engine);
     final pv = OrtValueTensor.createTensorWithDataList(vlmPixels(req.rgba, req.width, req.height), [1, 1, 3, 512, 512]);
     final vin = <String, OrtValue>{'pixel_values': pv};
     OrtValue? pm;
@@ -197,7 +200,7 @@ Future<VlmResult> runVlmSync(VlmRequest req, [void Function(String)? onPartial])
 
     // 2) prompt -> embeddings, con la imagen en el hueco de los tokens <image>
     final ids = tok.encode(vlmPrompt(req.question));
-    emb = ortOpen(_p(req.modelDir, '${req.prefix}_embed_int8.onnx'), math.min(2, req.threads));
+    emb = ortOpen(_p(req.modelDir, '${req.prefix}_embed_int8.onnx'), math.min(2, req.threads), req.engine);
     Float32List embed(List<int> x) {
       final it = OrtValueTensor.createTensorWithDataList(Int64List.fromList(x), [1, x.length]);
       final eo = emb!.run(ro, {'input_ids': it});
@@ -219,7 +222,7 @@ Future<VlmResult> runVlmSync(VlmRequest req, [void Function(String)? onPartial])
     }
 
     // 3) decodificación voraz con caché KV (el pasado empieza vacío)
-    dec = ortOpen(_p(req.modelDir, '${req.prefix}_decoder_int8.onnx'), req.threads);
+    dec = ortOpen(_p(req.modelDir, '${req.prefix}_decoder_int8.onnx'), req.threads, req.engine);
     final outNames = dec.outputNames;
     final logitsIdx = outNames.indexOf('logits');
     var past = <String, OrtValue>{};

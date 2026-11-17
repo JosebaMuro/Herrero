@@ -81,7 +81,7 @@ class _PlanImportScreenState extends State<PlanImportScreen> {
     final threads = (Platform.numberOfProcessors - 1).clamp(1, 6);
     setState(() => _seeing = 'Mirando el dibujo…');
     final job = startVlm(
-        VlmRequest(modelDir: dir, prefix: mgr.vlmPrefix, rgba: r.$1, width: r.$2, height: r.$3, threads: threads),
+        VlmRequest(modelDir: dir, prefix: mgr.vlmPrefix, rgba: r.$1, width: r.$2, height: r.$3, threads: threads, engine: mgr.engine),
         (partial) => mounted ? setState(() => _seeing = partial) : null);
     _job = job;
     try {
@@ -156,7 +156,7 @@ class _PlanImportScreenState extends State<PlanImportScreen> {
     _say('Leyendo textos y cotas (OCR local)…');
     final dir = (await mgr.dir(mgr.ocr.subdir)).path;
     final threads = (Platform.numberOfProcessors - 1).clamp(1, 6);
-    final toks = await runOcr(OcrRequest(modelDir: dir, rgba: rgba, width: w, height: h, threads: threads));
+    final toks = await runOcr(OcrRequest(modelDir: dir, rgba: rgba, width: w, height: h, threads: threads, engine: mgr.lightEngine));
     return PlanReading(toks, source, pageWidth: w.toDouble(), pageHeight: h.toDouble());
   }
 

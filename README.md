@@ -15,6 +15,16 @@ estructura según **CTE DB-SE-A / Eurocódigo 3** y genera:
 - **Render 3D** con z-buffer y sombras, y **foto realista con IA local** (sin internet).
 - **Importar plano**: PDF de CAD, PDF escaneado, foto o croquis a mano (OCR y visión IA locales).
 
+## Novedades de la v3.5
+
+- **IA acelerada por GPU / NPU** (Modelos IA → «Aceleración de la IA»), con vuelta a CPU automática:
+  - **Windows**: DirectML de serie (cualquier gráfica NVIDIA, AMD o Intel con DirectX 12). Descargas
+    opcionales: **NVIDIA CUDA** (≈340 MB, más ≈1,2 GB de librerías NVIDIA si no tienes CUDA 12 y
+    cuDNN 9) e **Intel OpenVINO** (≈36 MB, gráficas Intel y NPU Core Ultra).
+  - **Android**: NNAPI (GPU, DSP o NPU del móvil) y XNNPACK (CPU ARM optimizada).
+  - AMD ROCm/MIGraphX solo existe para Linux en ONNX Runtime y Vulkan no es un motor de ONNX Runtime:
+    en Windows las gráficas AMD van por DirectML.
+
 ## Novedades de la v3.3
 
 - Diccionario de castellano: entiende faltas, diminutivos, plurales y regionalismos («escalra»,

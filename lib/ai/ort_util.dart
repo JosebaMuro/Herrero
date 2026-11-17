@@ -1,11 +1,12 @@
 import 'dart:ffi' as ffi;
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
 import 'package:onnxruntime/onnxruntime.dart';
 // ignore: implementation_imports
 import 'package:onnxruntime/src/bindings/onnxruntime_bindings_generated.dart' as bg;
+
+import 'accel.dart';
 
 /// Lee [count] floats de un tensor (desde [offset]) sin pasar por listas anidadas.
 Float32List ortFloats(OrtValue v, int count, [int offset = 0]) {
@@ -22,16 +23,7 @@ Float32List ortFloats(OrtValue v, int count, [int offset = 0]) {
   }
 }
 
-/// Abre una sesión de CPU con [threads] hilos y todas las optimizaciones.
-OrtSession ortOpen(String path, int threads) {
-  final o = OrtSessionOptions()
-    ..setIntraOpNumThreads(threads)
-    ..setInterOpNumThreads(1)
-    ..setSessionGraphOptimizationLevel(GraphOptimizationLevel.ortEnableAll);
-  try {
-    o.appendCPUProvider(CPUFlags.useArena);
-    return OrtSession.fromFile(File(path), o);
-  } finally {
-    o.release();
-  }
-}
+/// Abre una sesión con [threads] hilos, todas las optimizaciones y la aceleración de
+/// [engine] (GPU / NPU si la hay; si no, o si falla, CPU).
+OrtSession ortOpen(String path, int threads, [AiEngine engine = AiEngine.cpu]) =>
+    ortOpenAccel(path, threads, engine).session;
