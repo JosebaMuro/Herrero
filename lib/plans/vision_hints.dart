@@ -58,18 +58,41 @@ const _numberWords = {'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5, 'six
 /// palabras más específicas (carport antes que frame).
 VisionHints visionHints(String text) {
   final t = text.toLowerCase();
-  StructureType? type;
-  var bestPos = 1 << 30;
-  var bestLen = 0;
-  for (final e in _typeWords.entries) {
-    final m = RegExp('(?<![a-z])${RegExp.escape(e.key)}s?(?![a-z])').firstMatch(t);
-    if (m == null) continue;
-    // preferimos lo que aparece antes; a igualdad, la palabra más larga
-    if (m.start < bestPos - 20 || (m.start < bestPos + 20 && e.key.length > bestLen)) {
-      bestPos = m.start;
-      bestLen = e.key.length;
-      type = e.value;
+  StructureType? typeIn(String x) {
+    StructureType? type;
+    var bestPos = 1 << 30;
+    var bestLen = 0;
+    for (final e in _typeWords.entries) {
+      final m = RegExp('(?<![a-z])${RegExp.escape(e.key)}s?(?![a-z])').firstMatch(x);
+      if (m == null) continue;
+      // lo que aparece antes; a igualdad, la palabra más larga
+      if (m.start < bestPos - 20 || (m.start < bestPos + 20 && e.key.length > bestLen)) {
+        bestPos = m.start;
+        bestLen = e.key.length;
+        type = e.value;
+      }
     }
+    return type;
+  }
+
+  int kinds(String x) => {
+        for (final e in _typeWords.entries)
+          if (RegExp('(?<![a-z])${RegExp.escape(e.key)}s?(?![a-z])').hasMatch(x)) e.value
+      }.length;
+
+  // Si el modelo repite la lista de opciones de la pregunta, se usa la primera
+  // frase que nombra una o dos tipologías.
+  StructureType? type;
+  if (kinds(t) >= 4) {
+    for (final sentence in t.split(RegExp(r'[.;\n]'))) {
+      final k = kinds(sentence);
+      if (k >= 1 && k <= 2) {
+        type = typeIn(sentence);
+        break;
+      }
+    }
+  } else {
+    type = typeIn(t);
   }
   final dims = <double>[];
   for (final m in RegExp(r'(\d{1,3}(?:[.,]\d{1,2})?)\s*(mm|cm|m|meters|metres)?(?![\d])').allMatches(t)) {

@@ -23,6 +23,10 @@ void main() {
     expect(h.columns, 2);
     expect(visionHints('A staircase with a handrail').type, StructureType.escalera);
     expect(visionHints('It is a warehouse with a gable roof').type, StructureType.nave);
+    // eco de las opciones de la pregunta: cuenta la frase que elige una
+    expect(
+        visionHints('A carport, warehouse, staircase, railing, gate or tower. The drawing shows a staircase.').type,
+        StructureType.escalera);
   });
 
   if (dir == null) return;

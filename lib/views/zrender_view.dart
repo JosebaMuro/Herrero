@@ -74,15 +74,31 @@ class _ZRenderViewState extends State<ZRenderView> {
     rgbaToImage(px, fw, fh).then((img) => _set(img, gen));
     // Vista definitiva al dejar de mover
     _hq?.cancel();
-    _hq = Timer(const Duration(milliseconds: 220), () async {
-      final w = math.min(1800, (_size.width * _dpr).round());
-      final h = (w * _size.height / _size.width).round();
-      final view = zViewFor(cam, w, h, sun: sun);
-      final scene = _scene;
-      final hq = await renderRgba(scene, view);
-      if (!mounted || gen != _gen) return;
-      await _set(await rgbaToImage(hq, w, h), gen);
-    });
+    _hq = Timer(const Duration(milliseconds: 220), _renderHq);
+  }
+
+  /// Render definitivo en otro isolate. Solo uno a la vez: si llega otro
+  /// cambio mientras tanto, se repite al terminar (ahorra batería en móvil).
+  bool _hqBusy = false, _hqAgain = false;
+  Future<void> _renderHq() async {
+    if (_hqBusy) {
+      _hqAgain = true;
+      return;
+    }
+    _hqBusy = true;
+    try {
+      do {
+        _hqAgain = false;
+        final gen = _gen;
+        final w = math.min(1800, (_size.width * _dpr).round());
+        final h = (w * _size.height / _size.width).round();
+        final hq = await renderRgba(_scene, zViewFor(widget.cam, w, h, sun: widget.sun));
+        if (!mounted) return;
+        if (gen == _gen) await _set(await rgbaToImage(hq, w, h), gen);
+      } while (_hqAgain && mounted);
+    } finally {
+      _hqBusy = false;
+    }
   }
 
   @override
