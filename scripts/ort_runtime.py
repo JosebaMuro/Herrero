@@ -34,6 +34,26 @@ def get(url):
         return r.read()
 
 
+UTF8_PATH = 'modelFile.path.toNativeUtf8().cast<ffi.Char>()'
+WIDE_PATH = ('(Platform.isWindows'
+             ' ? modelFile.path.toNativeUtf16().cast<ffi.Char>()'
+             ' : modelFile.path.toNativeUtf8().cast<ffi.Char>())')
+
+
+def patch_wide_path(pkg):
+    """En Windows, CreateSession recibe la ruta como wchar_t* (UTF-16). El paquete
+    la pasa en UTF-8 y ONNX Runtime la lee como texto chino: «Load model from 摥…
+    failed. File doesn't exist». Se corrige OrtSession.fromFile para pasar UTF-16."""
+    src = os.path.join(pkg, 'lib', 'src', 'ort_session.dart')
+    text = open(src, encoding='utf-8').read()
+    if WIDE_PATH not in text:
+        if UTF8_PATH not in text:
+            raise SystemExit('ort_session.dart inesperado: ' + src)
+        text = text.replace(UTF8_PATH, WIDE_PATH)
+        open(src, 'w', encoding='utf-8').write(text)
+    print('  ->', src, 'ruta del modelo en UTF-16')
+
+
 def main(platform):
     pkg = package_dir()
     print('paquete:', pkg)
@@ -51,6 +71,7 @@ def main(platform):
         with z.open(name) as src, open(dst, 'wb') as out:
             shutil.copyfileobj(src, out)
         print('  ->', dst, os.path.getsize(dst))
+        patch_wide_path(pkg)
     elif platform == 'linux':
         t = tarfile.open(fileobj=io.BytesIO(get(LINUX)))
         m = next(m for m in t.getmembers() if m.name.endswith('lib/libonnxruntime.so.1.20.1'))

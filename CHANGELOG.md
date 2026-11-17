@@ -1,5 +1,11 @@
 # Historial de versiones
 
+## 3.3.1
+
+- **Windows**: la foto realista, el lector de planos y la comprensión con IA local fallaban con
+  «Load model from … failed. File doesn't exist» (la ruta salía en caracteres chinos). ONNX Runtime
+  en Windows espera la ruta del modelo en UTF-16 y se le pasaba en UTF-8; ahora se pasa bien.
+
 ## 3.3.0
 
 - **Diccionario de castellano**: entiende la petición aunque venga con faltas («escalra», «varandilla»,
