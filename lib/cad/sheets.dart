@@ -60,7 +60,7 @@ void _frame(CadSheet s, Design d, int n, int total) {
   s.line(x0 + 120, rows[1], x0 + 120, rows[2], CadLayer.cajetin);
   _cell(s, x0, rows[2], 'MATERIAL', spec.grade.name);
   _cell(s, x0 + 60, rows[2], 'ACABADO', _short(spec.finish, 26));
-  _cell(s, x0 + 120, rows[2], 'EJECUCIÓN', 'EN 1090-2 EXC2');
+  _cell(s, x0 + 120, rows[2], 'EJECUCIÓN', 'EN 1090-2 EXC${spec.fab.execClass}');
   // fila 4: escala / formato / fecha / hoja
   for (final dx in [45.0, 90.0, 135.0]) {
     s.line(x0 + dx, rows[2], x0 + dx, rows[3], CadLayer.cajetin);

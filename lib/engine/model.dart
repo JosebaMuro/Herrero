@@ -1,6 +1,9 @@
 import 'dart:math' as math;
 
+import 'normativa.dart';
 import 'profiles.dart';
+
+export 'normativa.dart' show Fabrication, Norm;
 
 class Vec3 {
   final double x, y, z;
@@ -422,6 +425,9 @@ class StructureSpec {
   String cladding; // cerramiento lateral
   List<String> notes;
 
+  /// Requisitos de soldadura, calidad, ensayos y ambiente leídos de la petición.
+  Fabrication fab;
+
   StructureSpec({
     required this.type,
     required this.length,
@@ -443,6 +449,7 @@ class StructureSpec {
     Map<String, String>? parts,
     this.cladding = '',
     List<String>? notes,
+    this.fab = const Fabrication(),
   })  : parts = parts ?? {},
         notes = notes ?? [];
 }
@@ -474,6 +481,9 @@ class Design {
 
   late final List<Piece> pieces;
   late final List<StockPlan> stock;
+
+  /// Normativa de referencia pertinente para esta petición.
+  List<Norm> norms = const [];
 
   Design({
     required this.spec,

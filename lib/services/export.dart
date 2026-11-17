@@ -15,6 +15,7 @@ import '../cad/sheets.dart';
 import '../engine/bom.dart';
 import '../engine/materials.dart';
 import '../engine/model.dart';
+import '../engine/normativa.dart';
 import '../views/drawing_utils.dart';
 import '../views/iso_view.dart';
 import '../views/render_view.dart';
@@ -249,7 +250,7 @@ Future<Uint8List> buildPdf(Design d,
         ['TOTAL', '', '', '', '', _n(d.weldMeters), _n(d.consumableKg, 2), ''],
       ]),
       pw.Text(
-          'Soldadores cualificados según EN ISO 9606-1. WPS/WPQR según EN ISO 15614-1. Calidad nivel C (EN ISO 5817). Inspección visual 100 % (EN ISO 17637) y END adicionales según EN 1090-2 EXC2.',
+          weldingHypothesis(d.spec.fab),
           style: const pw.TextStyle(fontSize: 7.5)),
       h1('7. Pedido de material (barras comerciales)'),
       table(['Perfil', 'Barra (m)', 'Nº barras', 'Metros', 'kg aprox.', 'Merma'], [
@@ -267,6 +268,12 @@ Future<Uint8List> buildPdf(Design d,
       ...d.assembly.asMap().entries.map((e) => pw.Padding(
           padding: const pw.EdgeInsets.only(bottom: 2),
           child: pw.Text('${e.key + 1}. ${e.value}', style: const pw.TextStyle(fontSize: 8.5)))),
+      if (d.norms.isNotEmpty) ...[
+        h1('9. Normativa de referencia'),
+        ...d.norms.map((n) => pw.Bullet(text: '${n.code}: ${n.title}.', style: const pw.TextStyle(fontSize: 8))),
+        pw.Text('Resumen orientativo; consultar la edición vigente de cada norma (AENOR, BOE).',
+            style: const pw.TextStyle(fontSize: 7.5)),
+      ],
     ],
   ));
 

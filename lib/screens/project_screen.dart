@@ -471,6 +471,22 @@ class _SummaryTab extends StatelessWidget {
             ),
         ],
       ),
+      if (d.norms.isNotEmpty)
+        ExpansionTile(
+          title: Text('Normativa aplicable (${d.norms.length})'),
+          childrenPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          expandedCrossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (final n in d.norms)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text('${n.code} · ${n.title}', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                  Text(n.summary, style: const TextStyle(fontSize: 12.5)),
+                ]),
+              ),
+          ],
+        ),
       for (final w in d.warnings)
         Card(
           color: cs.errorContainer,

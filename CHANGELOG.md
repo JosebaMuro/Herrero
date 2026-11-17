@@ -1,5 +1,28 @@
 # Historial de versiones
 
+## 3.4.0
+
+- **Normativa de soldadura, herrería y calderería**: nueva pestaña «Normativa» en «Qué entiende
+  Herrero» con unas 50 normas resumidas y buscables: CTE DB-SE-A y DB-SUA, Eurocódigo 3, EN 1090,
+  procesos ISO 4063, símbolos ISO 2553, posiciones, preparación de bordes, cualificación de soldadores
+  y procedimientos, niveles de calidad ISO 5817, ensayos (visual, penetrantes, partículas,
+  ultrasonidos, radiografía), aceros y consumibles, galvanizado y pintura (ISO 1461, 12944, 9223),
+  puertas EN 13241/12453, accesos ISO 14122 y calderería (equipos a presión, EN 13445, EN 14015,
+  silos, bridas, fondos). Son resúmenes propios con la referencia de cada norma.
+- **La descripción manda también en la soldadura**: entiende «soldado con TIG / hilo / electrodo /
+  hilo tubular», «calidad B», «EXC3», «radiografiado», «ultrasonidos», «penetración completa»,
+  «cordones continuos o discontinuos», «soldado en obra», «junto al mar», «piscina», «calderín a 8 bar»…
+  - El proceso pedido pasa a la tabla de soldaduras con el consumible y el gas adecuados al material.
+  - La clase de ejecución y el nivel de calidad salen en la memoria, el PDF y el cajetín de los planos.
+  - Avisos de oficio: aluminio solo MIG/TIG, cordones discontinuos en exterior, ambiente costero
+    (galvanizado o dúplex, inox 316), soldadura en obra, equipos a presión fuera de alcance, puertas
+    motorizadas, partículas magnéticas en inox, etc.
+  - Recomendaciones de taller en la memoria: venteos para galvanizar, decapado del inox…
+- Cada proyecto muestra su **normativa aplicable** y el PDF añade la sección «Normativa de referencia».
+- **Vocabulario**: unos 60 términos nuevos en «Procesos de soldadura», «Calidad, inspección y
+  ensayos», «Herrería y forja» y «Calderería» (virola, tolva, brida, tubuladura, fondo Klöpper,
+  mordedura, poro, saneado de raíz, voluta, garra…), y el diccionario corrige sus faltas.
+
 ## 3.3.1
 
 - **Windows**: la foto realista, el lector de planos y la comprensión con IA local fallaban con

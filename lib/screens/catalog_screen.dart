@@ -2,6 +2,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../engine/catalog.dart';
 import '../engine/model.dart';
+import '../engine/normativa.dart';
 import '../engine/parser.dart';
 import '../engine/profiles.dart';
 import '../engine/vocabulary.dart';
@@ -14,17 +15,18 @@ class CatalogScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 3,
+      length: 4,
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Qué entiende Herrero'),
-          bottom: const TabBar(tabs: [
+          bottom: const TabBar(isScrollable: true, tabAlignment: TabAlignment.center, tabs: [
             Tab(text: 'Estructuras', icon: Icon(Icons.foundation)),
             Tab(text: 'Materiales', icon: Icon(Icons.layers)),
             Tab(text: 'Vocabulario', icon: Icon(Icons.menu_book)),
+            Tab(text: 'Normativa', icon: Icon(Icons.gavel)),
           ]),
         ),
-        body: const TabBarView(children: [_Typologies(), _Materials(), _Glossary()]),
+        body: const TabBarView(children: [_Typologies(), _Materials(), _Glossary(), _Norms()]),
       ),
     );
   }
@@ -148,6 +150,66 @@ class _GlossaryState extends State<_Glossary> {
                   dense: true,
                   title: Text(t.term, style: const TextStyle(fontWeight: FontWeight.w600)),
                   subtitle: Text(t.aka.isEmpty ? t.meaning : '${t.meaning}\nTambién: ${t.aka.join(', ')}'),
+                ),
+            ],
+        ]),
+      ),
+    ]);
+  }
+}
+
+/// Normativa de soldadura, estructura, herrería y calderería (resúmenes propios).
+class _Norms extends StatefulWidget {
+  const _Norms();
+  @override
+  State<_Norms> createState() => _NormsState();
+}
+
+class _NormsState extends State<_Norms> {
+  String _q = '';
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final q = normalize(_q.trim());
+    bool hit(Norm n) =>
+        q.isEmpty ||
+        normalize(n.code).contains(q) ||
+        normalize(n.title).contains(q) ||
+        normalize(n.summary).contains(q) ||
+        n.points.any((p) => normalize(p).contains(q));
+    return Column(children: [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+        child: TextField(
+          decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: 'Buscar norma (5817, TIG, galvanizado, EXC…)'),
+          onChanged: (v) => setState(() => _q = v),
+        ),
+      ),
+      Expanded(
+        child: ListView(padding: const EdgeInsets.all(12), children: [
+          Text('Resúmenes orientativos con la referencia de cada norma. Para proyecto, consulta la edición vigente '
+              '(AENOR, BOE). Escribe en la descripción lo que necesites: «soldadura TIG», «calidad B», «EXC3», '
+              '«radiografiado», «junto al mar», «cordones continuos», «soldado en obra»…',
+              style: TextStyle(color: cs.onSurfaceVariant, fontSize: 13)),
+          for (final a in normAreas)
+            if (normLibrary.any((n) => n.area == a && hit(n))) ...[
+              Padding(
+                padding: const EdgeInsets.only(top: 12, bottom: 4),
+                child: Text(a, style: TextStyle(color: cs.primary, fontWeight: FontWeight.w700)),
+              ),
+              for (final n in normLibrary.where((n) => n.area == a && hit(n)))
+                Card(
+                  child: ExpansionTile(
+                    title: Text(n.code, style: const TextStyle(fontWeight: FontWeight.w600)),
+                    subtitle: Text(n.title),
+                    childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                    expandedCrossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(n.summary),
+                      for (final p in n.points)
+                        Padding(padding: const EdgeInsets.only(top: 4), child: Text('•  $p')),
+                    ],
+                  ),
                 ),
             ],
         ]),

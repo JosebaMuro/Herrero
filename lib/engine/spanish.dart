@@ -47,6 +47,17 @@ const List<String> tradeWords = [
   'altura', 'ancho', 'anchura', 'largo', 'longitud', 'fondo', 'profundidad', 'hueco', 'diametro',
   'metros', 'metro', 'centimetros', 'milimetros', 'grados', 'pendiente', 'desnivel', 'separacion',
   'interior', 'exterior', 'galvanizar',
+  // soldadura, ensayos y calidad
+  'electrodo', 'electrodos', 'argon', 'tungsteno', 'semiautomatica', 'cordon', 'cordones', 'garganta', 'bisel',
+  'chaflan', 'biselado', 'precalentamiento', 'punteado', 'penetracion', 'continuo', 'continuos', 'discontinuo',
+  'discontinuos', 'radiografia', 'radiografiado', 'radiografiada', 'ultrasonidos', 'penetrantes', 'magnetoscopia',
+  'homologado', 'homologados', 'homologacion', 'soldador', 'soldadores', 'soldaduras', 'soldados', 'soldadas',
+  'estanco', 'estanca', 'corrosividad', 'salitre', 'costera', 'costero', 'ejecucion',
+  // herrería y calderería
+  'forja', 'forjado', 'fragua', 'voluta', 'volutas', 'retorcido', 'lanza', 'lanzas', 'calderin', 'calderero',
+  'caldereria', 'virola', 'virolas', 'tolva', 'tolvas', 'brida', 'bridas', 'tubuladura', 'tubuladuras', 'klopper',
+  'korbbogen', 'toriesferico', 'rolado', 'plegado', 'plegada', 'curvado', 'curvada', 'chimenea', 'tanque', 'silo',
+  'presion',
 ];
 
 /// Palabras corrientes del castellano que se parecen a palabras del oficio y

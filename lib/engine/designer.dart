@@ -3,8 +3,10 @@ import 'dart:math' as math;
 import 'bom.dart';
 import 'materials.dart';
 import 'model.dart';
+import 'normativa.dart';
 import 'parser.dart';
 import 'profiles.dart';
+import 'vocabulary.dart';
 
 part 'designer_extra.dart';
 part 'designer_forms.dart';
@@ -219,6 +221,7 @@ Design designFromPrompt(String prompt) {
 }
 
 Design designFromSpec(StructureSpec spec, String prompt) {
+  if (spec.fab.isEmpty && prompt.isNotEmpty) spec.fab = readFabrication(canonicalize(normalize(prompt)));
   _youngE = spec.grade.e;
   _parts = spec.parts;
   _partsUsed.clear();
@@ -265,6 +268,8 @@ Design designFromSpec(StructureSpec spec, String prompt) {
       break;
   }
   _applyMaterial(d);
+  d.norms = normsFor('${canonicalize(normalize(prompt))} ${normalize(spec.type.label)} ${spec.variant}',
+      material: spec.grade.kind, finish: spec.finish);
   buildBom(d);
   return d;
 }
@@ -274,7 +279,7 @@ void _applyMaterial(Design d) {
   final g = d.spec.grade;
   d.hypotheses.add('Material: ${g.name} (${g.norm}) – ${g.description} '
       'fy = ${_f(g.fy, 0)} N/mm², E = ${_f(g.e / 1000, 0)} GPa, densidad ${_f(g.density, 0)} kg/m³.');
-  d.hypotheses.add('Soldadura: ${g.weld}.');
+  d.hypotheses.add('Soldadura: ${weldProcessFor(d.spec.fab.process, g)}.');
   d.hypotheses.add('${g.bolts}.');
   if (g.kind == MaterialKind.aluminium) {
     d.warnings.add('Aluminio: predimensionado con el método del acero cambiando fy y E (≈ 3 veces más flexible). '
@@ -282,9 +287,19 @@ void _applyMaterial(Design d) {
   } else if (g.kind == MaterialKind.stainless) {
     d.warnings.add('Acero inoxidable: verificar con EN 1993-1-4 (curvas de pandeo y deformaciones propias).');
   }
+  final fab = d.spec.fab;
+  final process = weldProcessFor(fab.process, g);
   for (final w in d.welds) {
-    if (g.kind != MaterialKind.carbon || w.process.startsWith('135 (MAG) hilo ER70S-6')) w.process = g.weld;
+    if (fab.process.isNotEmpty || g.kind != MaterialKind.carbon || w.process.startsWith('135 (MAG) hilo ER70S-6')) {
+      w.process = process;
+    }
     w.density = g.density;
+  }
+  if (fab.process.isNotEmpty) d.hypotheses.add('Proceso de soldeo indicado por el usuario: $process.');
+  d.hypotheses.addAll(fabricationHypotheses(fab, d.spec));
+  for (final w in fabricationWarnings(fab, d.spec)) {
+    if (w.contains('12453') && d.hypotheses.any((h) => h.contains('12453'))) continue;
+    if (!d.warnings.contains(w)) d.warnings.add(w);
   }
   for (final p in d.plates) {
     p.density = g.density;
@@ -310,12 +325,12 @@ void _applyMaterial(Design d) {
 String _prefLabel(String v) => prefLabel(v);
 
 List<String> _commonHypotheses(StructureSpec s) => [
-      'Normativa: CTE DB-SE (bases de cálculo), DB-SE-AE (acciones), DB-SE-A (acero) y Eurocódigo 3 (EN 1993-1-1 y 1-8). Ejecución según EN 1090-2, clase EXC2.',
+      'Normativa: CTE DB-SE (bases de cálculo), DB-SE-AE (acciones), DB-SE-A (acero) y Eurocódigo 3 (EN 1993-1-1 y 1-8). Ejecución según EN 1090-2, clase EXC${s.fab.execClass}.',
       'Acero ${s.grade.name}: fy = ${_f(s.grade.fy, 0)} N/mm², fu = ${_f(s.grade.fu, 0)} N/mm². γM0 = γM1 = 1,05; γM2 = 1,25.',
       'Coeficientes de mayoración ELU: γG = 1,35; γQ = 1,50; ψ0 nieve = 0,5; ψ0 viento = 0,6.',
       'Predimensionado con métodos simplificados y aprovechamiento objetivo ≤ ${_f(_limit * 100, 0)} %. No sustituye al cálculo matricial del proyecto.',
       'Tornillería de alta resistencia clase 8.8 (EN 15048 / EN 14399 en uniones pretensadas). Pernos de anclaje B500S o 8.8 con tuerca y contratuerca.',
-      'Soldadura según EN ISO 15614 / EN ISO 9606-1; calidad nivel C (EN ISO 5817). Inspección visual 100 % + END según EXC2.',
+      weldingHypothesis(s.fab),
       'Acabado: ${s.finish}.',
     ];
 

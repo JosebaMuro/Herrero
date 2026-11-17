@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'catalog.dart';
 import 'model.dart';
+import 'normativa.dart';
 import 'profiles.dart';
 import 'spanish.dart';
 import 'vocabulary.dart';
@@ -817,6 +818,7 @@ StructureSpec parsePrompt(String prompt, {StructureType? type}) {
     levels: levels,
     variant: variant,
     notes: notes,
+    fab: readFabrication(t),
   );
 }
 
