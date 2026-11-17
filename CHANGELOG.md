@@ -1,5 +1,24 @@
 # Historial de versiones
 
+## 3.1.0
+
+- **Comprensión de la petición**: antes de calcular, la app enseña la ficha «Lo que he entendido»
+  (tipología, medidas, cubierta o suelo, sobrecarga, acero, acabado, ubicación y uso) con el origen de
+  cada dato: de tu texto, deducido por oficio, leído por la IA, valor habitual o cambiado por ti. Toca
+  un dato para corregirlo antes de calcular.
+- **Razonamiento de oficio**: entiende para qué es la estructura aunque no traiga medidas. «Para 3
+  coches» da 7,5 x 5 m y 2,5 m libres; «guardar el tractor», 4,2 m de altura; «cuadra para 10
+  caballos», boxes en fila con pasillo; «pasar con carretillas», 2 m de paso y 5 kN/m². Cada número
+  explica de dónde sale.
+- **Tipología por finalidad**: «algo para subir al altillo» es una escalera, «que no se caigan los
+  niños» una barandilla, «colgar un polipasto» un pórtico, «separar mi terreno del vecino» una valla.
+- **IA local de comprensión**, descargable desde Modelos IA:
+  - *Comprensión* (multilingual-e5-small, 118 MB): reconoce la tipología por el significado de la frase.
+  - *Razonamiento* (Qwen3 0.6B, unos 620 MB): lee la petición y rellena la ficha en segundo plano.
+    Solo se acepta lo que respalda tu texto; lo que la IA se inventa se descarta y se avisa.
+  - Sin los modelos la app funciona igual, con las reglas del oficio.
+- Números con letra («unos ocho metros», «cuatro alturas») y «7 metros libres» como altura.
+
 ## 3.0.1
 
 - **Android: arreglada la descarga de modelos IA** (OCR, foto IA y visión IA). El APK no pedía el permiso

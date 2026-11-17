@@ -15,6 +15,15 @@ estructura según **CTE DB-SE-A / Eurocódigo 3** y genera:
 - **Render 3D** con z-buffer y sombras, y **foto realista con IA local** (sin internet).
 - **Importar plano**: PDF de CAD, PDF escaneado, foto o croquis a mano (OCR y visión IA locales).
 
+## Novedades de la v3.1
+
+- Ficha «Lo que he entendido» antes de calcular: tipología, medidas y materiales con el origen de cada
+  dato (de tu texto, deducido, leído por la IA, valor habitual o cambiado por ti), editable.
+- Razonamiento de oficio: «para 3 coches», «guardar el tractor», «cuadra para 10 caballos», «pasar con
+  carretillas»… dan medidas y cargas razonadas aunque no escribas números.
+- IA local de comprensión (multilingual-e5-small) y de razonamiento (Qwen3 0.6B), descargables desde
+  Modelos IA. La IA solo aporta lo que respalda tu texto; sin modelos funciona igual con las reglas.
+
 ## Novedades de la v3
 
 - Planos tipo CAD (pestaña Planos, PDF del proyecto y menú Exportar) y exportación DXF.
