@@ -8,6 +8,7 @@
   Runtime 1.20.
 - Los modelos IA quedan fuera de la copia de seguridad de iCloud.
 - La carpeta Herrero con los ficheros exportados aparece en la app Archivos del iPhone.
+- Pasos de instalación en el README, apartado «Instalar en iPhone gratis».
 
 ## 3.1.0
 
