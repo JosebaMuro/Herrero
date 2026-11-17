@@ -150,7 +150,10 @@ class _PlanImportScreenState extends State<PlanImportScreen> {
   }
 
   Future<PlanReading?> _ocr(Uint8List rgba, int w, int h, String source) async {
-    if (!await _ensureOcr()) return null;
+    if (!await _ensureOcr()) {
+      // sin OCR pero con visión IA: se sigue solo con el dibujo
+      return mgr.vlmReady ? PlanReading(const [], source, pageWidth: w.toDouble(), pageHeight: h.toDouble()) : null;
+    }
     _say('Leyendo textos y cotas (OCR local)…');
     final dir = (await mgr.dir(mgr.ocr.subdir)).path;
     final threads = (Platform.numberOfProcessors - 1).clamp(1, 6);

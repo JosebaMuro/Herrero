@@ -7,15 +7,29 @@ estructura según **CTE DB-SE-A / Eurocódigo 3** y genera:
 - **Despiece** con marcas, perfiles, longitudes, cantidades, pesos y optimización de barras comerciales.
 - **Chapas, tornillería y soldaduras** (garganta, longitud, proceso, consumible estimado).
 - **Memoria de cálculo** con hipótesis, cargas y comprobaciones (aprovechamiento η).
-- **Vista isométrica**, **planos de montaje** (alzados, planta, detalle de placa) y **secuencia de montaje**.
-- **Render 3D** de la estructura y exportación a **PDF**.
+- **Vista isométrica** y **secuencia de montaje**.
+- **Planos tipo CAD** en A3: cajetín ISO 7200, líneas normalizadas, acotación ISO, alzados, planta,
+  detalles de uniones con símbolos de soldadura ISO 2553 y despiece. Exportables a **PDF vectorial**
+  (color o plotter) y **DXF**.
+- **Modelo 3D** exportable a **DXF** y a **SketchUp 2017** (COLLADA .dae: Archivo > Importar).
+- **Render 3D** con z-buffer y sombras, y **foto realista con IA local** (sin internet).
+- **Importar plano**: PDF de CAD, PDF escaneado, foto o croquis a mano (OCR y visión IA locales).
+
+## Novedades de la v3
+
+- Planos tipo CAD (pestaña Planos, PDF del proyecto y menú Exportar) y exportación DXF.
+- Exportación del modelo 3D a DXF y a SketchUp 2017.
+- Render 3D refinado: z-buffer por píxel y mapa de sombras; solo policarbonato, vidrio y malla son translúcidos.
+- Visión IA local para croquis (SmolVLM 256M en móvil, 500M en PC), descargable desde Modelos IA.
+- Motor ONNX Runtime 1.20, revisión de código y APK `arm64` más ligero para móviles actuales.
 
 > ⚠️ Los resultados son un **predimensionado orientativo**. Deben ser revisados y firmados por un técnico competente antes de fabricar o montar.
 
 ## Descargas
 
 Los binarios se generan con GitHub Actions y se publican en *Releases*:
-- `Herrero-android.apk` — instalar en Android (permitir orígenes desconocidos).
+- `Herrero-android-arm64.apk` — Android de 64 bits (casi todos los móviles desde 2017), más ligero.
+- `Herrero-android.apk` — Android universal (también móviles antiguos de 32 bits).
 - `Herrero-windows-setup.exe` — instalador para Windows 10/11 x64.
 - `Herrero-windows-portable.zip` — versión portable (descomprimir y ejecutar `herrero.exe`).
 
@@ -26,6 +40,9 @@ Los binarios se generan con GitHub Actions y se publican en *Releases*:
 | Nave de pórticos a dos aguas | nave, pórtico, almacén, taller, hangar |
 | Marquesina / pérgola / cobertizo | marquesina, pérgola, porche, carport, cochera |
 | Entreplanta / altillo | altillo, entreplanta, plataforma, forjado |
+| Escalera, pasarela, barandilla | escalera, zanca, pasarela, barandilla, pasamanos |
+| Cercha, torre, estantería | cercha, celosía, torre, estantería, rack |
+| Cancela, valla, pórtico, poste | cancela, puerta, valla, pórtico, poste, báculo |
 
 ## Desarrollo
 
