@@ -72,6 +72,8 @@ class _ModelsScreenState extends State<ModelsScreen> {
     final st = mgr.status[m.id];
     if (st?.state == DlState.installed) {
       _snack(switch (m.task) {
+        ModelTask.understand || ModelTask.reason =>
+          '«${m.name}» listo. La app entenderá mejor tus peticiones, sin conexión.',
         ModelTask.photo => '«${m.name}» listo. Ya puedes generar fotos sin conexión.',
         ModelTask.plans => '«${m.name}» listo. Ya puedes importar planos escaneados y fotos sin conexión.',
         ModelTask.sketch => '«${m.name}» listo. Ya puedes interpretar croquis sin conexión.',
@@ -155,7 +157,8 @@ class _ModelsScreenState extends State<ModelsScreen> {
               Text(
                 'Los modelos se ejecutan en tu dispositivo: las imágenes no salen de él. '
                 'Basados en SD-Turbo (Stability AI; revisa su licencia antes de un uso comercial), TAESD (MIT) '
-                'PP-OCRv4 de PaddleOCR (Apache-2.0) y SmolVLM de Hugging Face (Apache-2.0), en formato ONNX '
+                'PP-OCRv4 de PaddleOCR (Apache-2.0), SmolVLM de Hugging Face (Apache-2.0), multilingual-e5-small '
+                '(MIT) y Qwen3 (Apache-2.0), en formato ONNX '
                 'para funcionar en CPU, NPU o GPU.',
                 style: Theme.of(context).textTheme.bodySmall,
               ),

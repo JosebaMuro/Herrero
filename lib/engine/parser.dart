@@ -163,12 +163,13 @@ StructureType detectType(String t, List<String> notes) {
 }
 
 /// Interpreta el prompt en lenguaje natural y devuelve la especificación.
-StructureSpec parsePrompt(String prompt) {
+/// [type] fija la tipología (p. ej. la que ha decidido la comprensión IA).
+StructureSpec parsePrompt(String prompt, {StructureType? type}) {
   final t = canonicalize(normalize(prompt));
   final notes = <String>[];
 
   // --- Tipo de estructura (catálogo de tipologías con sinónimos) ---------
-  final type = detectType(t, notes);
+  type ??= detectType(t, notes);
 
   // --- Dimensiones ---------------------------------------------------------
   double? length = _find(t, [
@@ -181,7 +182,7 @@ StructureSpec parsePrompt(String prompt) {
   ]);
   double? height = _find(t, [
     '${_kw("altura libre|altura al alero|altura de alero|altura|alto|alero|gálibo|galibo|cota")}\\s*(?:libre\\s*)?(?:de|:|=|a)?\\s*(?<n>\\d+(?:\\.\\d+)?)\\s*(?<u>mm|cm|m)?',
-    '(?<n>\\d+(?:\\.\\d+)?)\\s*(?<u>mm|cm|m)?(?:etros?|ts?)?\\s*(?:de\\s+)?${_kw("alto|altura")}',
+    '(?<n>\\d+(?:\\.\\d+)?)\\s*(?<u>mm|cm|m)?(?:etros?|ts?)?\\s*(?:de\\s+)?${_kw("alto|altura|libres?(?! de ancho)")}',
   ]);
 
   // Formato "A x B (x C)"

@@ -11,13 +11,12 @@ import 'package:printing/printing.dart';
 
 import '../ai/model_manager.dart';
 import '../ai/vlm.dart';
-import '../engine/designer.dart';
 import '../plans/ocr_engine.dart';
 import '../plans/pdf_text.dart';
 import '../plans/plan_analyzer.dart';
 import '../plans/plan_token.dart';
 import 'models_screen.dart';
-import 'project_screen.dart';
+import 'understand_screen.dart';
 
 /// Importa un plano (PDF de CAD, PDF escaneado o foto) y lo convierte en un
 /// prompt que el usuario revisa antes de calcular.
@@ -248,8 +247,7 @@ class _PlanImportScreenState extends State<PlanImportScreen> {
     final p = _prompt.text.trim();
     if (p.isEmpty) return;
     try {
-      final d = designFromPrompt(p);
-      await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => ProjectScreen(design: d)));
+      await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => UnderstandScreen(prompt: p)));
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo calcular: $e')));

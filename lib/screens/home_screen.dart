@@ -1,11 +1,10 @@
 import 'package:material_ui/material_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../engine/designer.dart';
 import 'catalog_screen.dart';
 import 'models_screen.dart';
 import 'plan_import_screen.dart';
-import 'project_screen.dart';
+import 'understand_screen.dart';
 
 const examples = [
   'Nave a dos aguas de 30 x 15 m, 6 m de altura al alero, pórticos cada 6 m, panel sándwich, en Vitoria',
@@ -64,10 +63,9 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() => _busy = true);
     await Future<void>.delayed(const Duration(milliseconds: 30));
     try {
-      final d = designFromPrompt(p);
       await _saveHistory(p);
       if (!mounted) return;
-      await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => ProjectScreen(design: d)));
+      await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => UnderstandScreen(prompt: p)));
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo calcular: $e')));
@@ -109,11 +107,11 @@ class _HomeScreenState extends State<HomeScreen> {
             onPressed: () => showAboutDialog(
               context: context,
               applicationName: 'Herrero',
-              applicationVersion: '3.0.1',
+              applicationVersion: '3.1.0',
               children: const [
                 Text('Predimensionado de estructuras metálicas según CTE DB-SE-A y Eurocódigo 3, '
                     'con despiece, soldaduras, planos tipo CAD (PDF y DXF), modelo 3D para SketchUp, '
-                    'render y lectura de planos y croquis con IA local.\n\n'
+                    'render, lectura de planos y croquis y comprensión de la petición con IA local.\n\n'
                     'Los resultados son orientativos y deben ser validados por un técnico competente.'),
               ],
             ),

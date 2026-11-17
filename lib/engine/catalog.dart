@@ -178,7 +178,7 @@ const typologies = <Typology>[
     type: StructureType.valla,
     description: 'Valla o cerramiento de parcela: postes anclados, largueros y relleno de barrotes, chapa o malla.',
     keywords: {
-      'valla': 10, 'vallado': 10, 'cerramiento': 8, 'cerca': 7, 'reja': 8, 'rejas': 8, 'enrejado': 9,
+      'valla': 10, 'vallado': 10, 'cerramiento': 4, 'cerca': 7, 'reja': 8, 'rejas': 8, 'enrejado': 9,
       'cerramiento de parcela': 10, 'malla de simple torsion': 9, 'malla electrosoldada': 7, 'muro de chapa': 8, 'empalizada': 8,
     },
     computes: ['Postes en ménsula por viento', 'Largueros', 'Barrotes / chapa / malla', 'Placas y anclajes'],

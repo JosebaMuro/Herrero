@@ -1,17 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:ffi' as ffi;
 import 'dart:io';
 import 'dart:isolate';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
-import 'package:ffi/ffi.dart';
 import 'package:onnxruntime/onnxruntime.dart';
-// ignore: implementation_imports
-import 'package:onnxruntime/src/bindings/onnxruntime_bindings_generated.dart' as bg;
 
 import 'bpe_tokenizer.dart';
+import 'ort_util.dart';
 
 /// Pregunta que se hace al modelo sobre un croquis o plano. El modelo es más
 /// fiable en inglés; la respuesta se traduce a términos del oficio después.
@@ -160,34 +157,6 @@ String vlmPrompt(String question, {int imageTokens = 64}) =>
     '<|im_start|>User:<fake_token_around_image><global-img>${'<image>' * imageTokens}'
     '<fake_token_around_image>$question<end_of_utterance>\nAssistant:';
 
-/// Lee los floats de un tensor sin pasar por listas anidadas.
-Float32List _floats(OrtValue v, int count, [int offset = 0]) {
-  final api = OrtEnv.instance.ortApiPtr.ref;
-  final out = calloc<ffi.Pointer<ffi.Void>>();
-  try {
-    final st = api.GetTensorMutableData.asFunction<
-        bg.OrtStatusPtr Function(ffi.Pointer<bg.OrtValue>, ffi.Pointer<ffi.Pointer<ffi.Void>>)>()(v.ptr.cast(), out);
-    OrtStatus.checkOrtStatus(st);
-    final p = out.value.cast<ffi.Float>();
-    return Float32List.fromList((p + offset).asTypedList(count));
-  } finally {
-    calloc.free(out);
-  }
-}
-
-OrtSession _open(String path, int threads) {
-  final o = OrtSessionOptions()
-    ..setIntraOpNumThreads(threads)
-    ..setInterOpNumThreads(1)
-    ..setSessionGraphOptimizationLevel(GraphOptimizationLevel.ortEnableAll);
-  try {
-    o.appendCPUProvider(CPUFlags.useArena);
-    return OrtSession.fromFile(File(path), o);
-  } finally {
-    o.release();
-  }
-}
-
 /// Ejecuta el VLM (síncrono; llamar dentro de un isolate). [onPartial] recibe
 /// el texto acumulado cada pocos tokens.
 Future<VlmResult> runVlmSync(VlmRequest req, [void Function(String)? onPartial]) async {
@@ -208,7 +177,7 @@ Future<VlmResult> runVlmSync(VlmRequest req, [void Function(String)? onPartial])
   OrtSession? vis, emb, dec;
   try {
     // 1) imagen -> 64 vectores
-    vis = _open(_p(req.modelDir, '${req.prefix}_vision_int8.onnx'), req.threads);
+    vis = ortOpen(_p(req.modelDir, '${req.prefix}_vision_int8.onnx'), req.threads);
     final pv = OrtValueTensor.createTensorWithDataList(vlmPixels(req.rgba, req.width, req.height), [1, 1, 3, 512, 512]);
     final vin = <String, OrtValue>{'pixel_values': pv};
     OrtValue? pm;
@@ -219,7 +188,7 @@ Future<VlmResult> runVlmSync(VlmRequest req, [void Function(String)? onPartial])
     final vo = vis.run(ro, vin);
     pv.release();
     pm?.release();
-    final feats = _floats(vo[0]!, 64 * hidden);
+    final feats = ortFloats(vo[0]!, 64 * hidden);
     for (final o in vo) {
       o?.release();
     }
@@ -228,12 +197,12 @@ Future<VlmResult> runVlmSync(VlmRequest req, [void Function(String)? onPartial])
 
     // 2) prompt -> embeddings, con la imagen en el hueco de los tokens <image>
     final ids = tok.encode(vlmPrompt(req.question));
-    emb = _open(_p(req.modelDir, '${req.prefix}_embed_int8.onnx'), math.min(2, req.threads));
+    emb = ortOpen(_p(req.modelDir, '${req.prefix}_embed_int8.onnx'), math.min(2, req.threads));
     Float32List embed(List<int> x) {
       final it = OrtValueTensor.createTensorWithDataList(Int64List.fromList(x), [1, x.length]);
       final eo = emb!.run(ro, {'input_ids': it});
       it.release();
-      final r = _floats(eo[0]!, x.length * hidden);
+      final r = ortFloats(eo[0]!, x.length * hidden);
       for (final o in eo) {
         o?.release();
       }
@@ -250,7 +219,7 @@ Future<VlmResult> runVlmSync(VlmRequest req, [void Function(String)? onPartial])
     }
 
     // 3) decodificación voraz con caché KV (el pasado empieza vacío)
-    dec = _open(_p(req.modelDir, '${req.prefix}_decoder_int8.onnx'), req.threads);
+    dec = ortOpen(_p(req.modelDir, '${req.prefix}_decoder_int8.onnx'), req.threads);
     final outNames = dec.outputNames;
     final logitsIdx = outNames.indexOf('logits');
     var past = <String, OrtValue>{};
@@ -276,7 +245,7 @@ Future<VlmResult> runVlmSync(VlmRequest req, [void Function(String)? onPartial])
         v.release();
       }
       past = {};
-      final logits = _floats(outs[logitsIdx]!, vocabSize, (seq - 1) * vocabSize);
+      final logits = ortFloats(outs[logitsIdx]!, vocabSize, (seq - 1) * vocabSize);
       for (var i = 0; i < outs.length; i++) {
         final n = outNames[i];
         if (n.startsWith('present')) {

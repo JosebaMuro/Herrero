@@ -2,8 +2,9 @@ import 'dart:convert';
 import 'dart:io';
 
 /// Tokenizador BPE a nivel de byte (estilo GPT-2) leído de un tokenizer.json
-/// de Hugging Face. Cubre lo que usa SmolLM2/SmolVLM: tokens añadidos
-/// (especiales), dígitos separados uno a uno y la expresión regular de GPT-2.
+/// de Hugging Face. Cubre lo que usan SmolLM2/SmolVLM y Qwen: tokens añadidos
+/// (especiales), dígitos separados uno a uno, la expresión regular de GPT-2 o
+/// la del pre-tokenizador `Split` del fichero, y normalización NFC.
 class BpeTokenizer {
   final Map<String, int> vocab;
   final List<String> idToToken;
@@ -11,9 +12,12 @@ class BpeTokenizer {
   final List<String> _added; // contenido de los tokens añadidos, del más largo al más corto
   final Set<int> special;
   final bool splitDigits;
+  final RegExp _words;
+  final bool _nfc;
   final Map<String, List<int>> _cache = {};
 
-  BpeTokenizer._(this.vocab, this.idToToken, this._ranks, this._added, this.special, this.splitDigits);
+  BpeTokenizer._(this.vocab, this.idToToken, this._ranks, this._added, this.special, this.splitDigits, this._words,
+      this._nfc);
 
   static Future<BpeTokenizer> fromFile(String path) async =>
       fromJson(jsonDecode(await File(path).readAsString()) as Map<String, dynamic>);
@@ -48,7 +52,83 @@ class BpeTokenizer {
     vocab.forEach((k, v) => itos[v] = k);
     final pre = jsonEncode(j['pre_tokenizer'] ?? const {});
     final digits = pre.contains('"Digits"') && pre.contains('"individual_digits":true');
-    return BpeTokenizer._(vocab, itos, ranks, added, special, digits);
+    RegExp? split;
+    void scan(Object? n) {
+      if (n is! Map) return;
+      final pat = n['pattern'];
+      if (n['type'] == 'Split' && pat is Map && pat['Regex'] is String) {
+        split = RegExp(dartPattern(pat['Regex'] as String), unicode: true);
+      }
+      for (final c in (n['pretokenizers'] as List? ?? const [])) {
+        scan(c);
+      }
+    }
+
+    scan(j['pre_tokenizer']);
+    final nfc = jsonEncode(j['normalizer'] ?? const {}).contains('"NFC"');
+    return BpeTokenizer._(vocab, itos, ranks, added, special, digits, split ?? _gpt2, nfc);
+  }
+
+  /// Adapta una expresión regular de Hugging Face (Oniguruma) a Dart: los
+  /// grupos `(?i:...)` sin distinguir mayúsculas pasan a clases [aA].
+  static String dartPattern(String p) {
+    final out = StringBuffer();
+    var i = 0;
+    while (i < p.length) {
+      if (p.startsWith('(?i:', i)) {
+        var depth = 1, k = i + 4;
+        final inner = StringBuffer();
+        while (k < p.length && depth > 0) {
+          final c = p[k];
+          if (c == '\\' && k + 1 < p.length) {
+            inner.write(p.substring(k, k + 2));
+            k += 2;
+            continue;
+          }
+          if (c == '(') depth++;
+          if (c == ')') depth--;
+          if (depth > 0) {
+            final l = c.toLowerCase(), u = c.toUpperCase();
+            inner.write(l != u ? '[$l$u]' : c);
+          }
+          k++;
+        }
+        out.write('(?:$inner)');
+        i = k;
+      } else {
+        out.write(p[i]);
+        i++;
+      }
+    }
+    return out.toString();
+  }
+
+  /// NFC para lo que se escribe en español: vocal o n + tilde, diéresis o
+  /// virgulilla combinantes -> carácter compuesto.
+  static String composeNfc(String s) {
+    if (!s.contains(RegExp('[\u0300-\u036f]'))) return s;
+    const marks = {0x301: 'aeiouAEIOUyY', 0x300: 'aeiouAEIOU', 0x308: 'aeiouAEIOUy', 0x303: 'nNaoAO', 0x327: 'cC'};
+    const composed = {
+      0x301: 'áéíóúÁÉÍÓÚýÝ',
+      0x300: 'àèìòùÀÈÌÒÙ',
+      0x308: 'äëïöüÄËÏÖÜÿ',
+      0x303: 'ñÑãõÃÕ',
+      0x327: 'çÇ',
+    };
+    final out = StringBuffer();
+    final r = s.runes.toList();
+    for (var i = 0; i < r.length; i++) {
+      if (i + 1 < r.length && marks.containsKey(r[i + 1])) {
+        final k = marks[r[i + 1]]!.indexOf(String.fromCharCode(r[i]));
+        if (k >= 0) {
+          out.write(composed[r[i + 1]]![k]);
+          i++;
+          continue;
+        }
+      }
+      out.writeCharCode(r[i]);
+    }
+    return out.toString();
   }
 
   static final _gpt2 = RegExp(r"""'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+""",
@@ -80,6 +160,7 @@ class BpeTokenizer {
   static final Map<int, int> _u2b = {for (var b = 0; b < 256; b++) _b2u[b].codeUnitAt(0): b};
 
   List<int> encode(String text) {
+    if (_nfc) text = composeNfc(text);
     final ids = <int>[];
     var i = 0;
     while (i < text.length) {
@@ -116,7 +197,7 @@ class BpeTokenizer {
       pieces.add(s);
     }
     for (final p in pieces) {
-      for (final m in _gpt2.allMatches(p)) {
+      for (final m in _words.allMatches(p)) {
         final w = m.group(0)!;
         final mapped = utf8.encode(w).map((b) => _b2u[b]).join();
         ids.addAll(_cache.putIfAbsent(mapped, () => _bpe(mapped)));

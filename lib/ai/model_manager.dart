@@ -16,13 +16,18 @@ import 'sd_pipeline.dart';
 const modelsRelease = 'https://github.com/JosebaMuro/Herrero/releases/download/models-sdturbo-v1';
 const ocrRelease = 'https://github.com/JosebaMuro/Herrero/releases/download/models-ocr-v1';
 const vlmRelease = 'https://github.com/JosebaMuro/Herrero/releases/download/models-vlm-v1';
+const reasonRelease = 'https://github.com/JosebaMuro/Herrero/releases/download/models-reason-v1';
 
 /// Paso de la app que usa un modelo de IA.
-enum ModelTask { photo, plans, sketch }
+enum ModelTask { understand, reason, photo, plans, sketch }
 
 extension ModelTaskLabel on ModelTask {
   String get label {
     switch (this) {
+      case ModelTask.understand:
+        return 'Comprensión de la petición (embeddings)';
+      case ModelTask.reason:
+        return 'Lectura con razonamiento (LLM local)';
       case ModelTask.photo:
         return 'Foto realista (IA local)';
       case ModelTask.plans:
@@ -34,6 +39,12 @@ extension ModelTaskLabel on ModelTask {
 
   String get description {
     switch (this) {
+      case ModelTask.understand:
+        return 'Reconoce qué estructura pides aunque la describas con tus palabras («un techado para el coche», '
+            '«algo para subir al altillo») comparando el significado con el catálogo. Ligero y rápido.';
+      case ModelTask.reason:
+        return 'Lee tu petición como un técnico y rellena la ficha (medidas, cubierta, acabado, ubicación, uso). '
+            'Solo se aceptan datos que estén en tu texto; lo demás lo deduce la app y lo puedes revisar.';
       case ModelTask.photo:
         return 'Convierte el render 3D de la estructura en una fotografía realista, sin internet.';
       case ModelTask.plans:
@@ -155,6 +166,48 @@ const catalog = <ModelVariant>[
     ],
   ),
   ModelVariant(
+    id: 'e5-small',
+    task: ModelTask.understand,
+    name: 'Comprensión · multilingual-e5-small',
+    summary: 'Modelo de embeddings multilingüe (Microsoft, MIT) en int8: convierte tu petición en un vector de '
+        'significado y lo compara con ejemplos de cada tipología. Funciona sin internet en cualquier móvil.',
+    unetFile: '',
+    minRamGb: 1,
+    recRamGb: 2,
+    quality: 'Reconocimiento de la tipología con palabras propias: muy bueno',
+    speed: 'menos de 1 s por petición',
+    approxBytes: 136000000,
+    release: reasonRelease,
+    subdir: 'reason',
+    fileList: ['e5s_model_int8.onnx', 'e5s_tokenizer.json', 'e5s_config.json'],
+    partList: [
+      ('Modelo de embeddings (int8)', 'e5s_model_int8.onnx'),
+      ('Tokenizador', 'e5s_tokenizer.json'),
+      ('Configuración', 'e5s_config.json'),
+    ],
+  ),
+  ModelVariant(
+    id: 'qwen3-0.6b',
+    task: ModelTask.reason,
+    name: 'Razonamiento · Qwen3 0.6B',
+    summary: 'Modelo de lenguaje pequeño (Alibaba Qwen, Apache-2.0) en int8. Lee la petición y rellena la ficha '
+        'de la estructura; la app comprueba cada dato contra tu texto antes de usarlo.',
+    unetFile: '',
+    minRamGb: 3,
+    recRamGb: 4,
+    quality: 'Lectura de datos sueltos (ubicación, uso, cubierta, acabado): buena',
+    speed: '5–30 s por petición',
+    approxBytes: 627000000,
+    release: reasonRelease,
+    subdir: 'reason',
+    fileList: ['qwen3_model_int8.onnx', 'qwen3_tokenizer.json', 'qwen3_config.json'],
+    partList: [
+      ('Modelo de lenguaje (int8)', 'qwen3_model_int8.onnx'),
+      ('Tokenizador', 'qwen3_tokenizer.json'),
+      ('Configuración', 'qwen3_config.json'),
+    ],
+  ),
+  ModelVariant(
     id: 'smolvlm-256m',
     task: ModelTask.sketch,
     name: 'Visión de croquis · SmolVLM 256M',
@@ -270,6 +323,8 @@ class DeviceProfile {
   ModelVariant recommended(ModelTask task) {
     ModelVariant byId(String id) => catalog.firstWhere((m) => m.id == id);
     if (task == ModelTask.plans) return byId('ppocr-v4');
+    if (task == ModelTask.understand) return byId('e5-small');
+    if (task == ModelTask.reason) return byId('qwen3-0.6b');
     if (task == ModelTask.sketch) {
       return (!isMobile && (ramGb <= 0 || ramGb >= 6)) || ramGb >= 8 ? byId('smolvlm-500m') : byId('smolvlm-256m');
     }
@@ -642,6 +697,12 @@ class ModelManager extends ChangeNotifier {
   }
 
   bool get vlmReady => status[vlm.id]?.state == DlState.installed;
+
+  /// Comprensión (embeddings) y razonamiento (LLM) de la petición.
+  ModelVariant get embedder => catalog.firstWhere((m) => m.task == ModelTask.understand);
+  ModelVariant get reasoner => catalog.firstWhere((m) => m.task == ModelTask.reason);
+  bool get embedReady => status[embedder.id]?.state == DlState.installed;
+  bool get reasonReady => status[reasoner.id]?.state == DlState.installed;
 
   /// Prefijo de ficheros del modelo de visión (smolvlm / smolvlm500).
   String get vlmPrefix => vlm.files.first.split('_').first;
