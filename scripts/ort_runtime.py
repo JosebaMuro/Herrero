@@ -12,7 +12,7 @@ Uso (después de `flutter pub get`):
 En iOS no hay biblioteca que copiar: el paquete enlaza el pod
 `onnxruntime-objc` (estático) y aquí se cambia su versión en el podspec.
 """
-import hashlib, io, json, os, shutil, sys, tarfile, urllib.request, zipfile
+import hashlib, io, json, os, shutil, sys, tarfile, time, urllib.error, urllib.request, zipfile
 
 ANDROID = 'https://repo1.maven.org/maven2/com/microsoft/onnxruntime/onnxruntime-android/1.20.0/onnxruntime-android-1.20.0.aar'
 # ONNX Runtime 1.20.1 con DirectML y DirectML 1.15.2 (la versión que pide su nuspec)
@@ -39,9 +39,25 @@ def package_dir():
 
 
 def get(url, sha256=None):
-    print('descargando', url)
-    with urllib.request.urlopen(url) as r:
-        data = r.read()
+    # Maven Central y NuGet devuelven a veces 429/5xx a los runners de CI: se reintenta
+    for attempt in range(1, 7):
+        print('descargando', url, '(intento %d)' % attempt if attempt > 1 else '')
+        try:
+            with urllib.request.urlopen(url, timeout=120) as r:
+                data = r.read()
+            break
+        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as e:
+            code = getattr(e, 'code', None)
+            if attempt == 6 or (code is not None and code not in (408, 429, 500, 502, 503, 504)):
+                raise
+            wait = 10 * attempt
+            if code == 429:
+                try:
+                    wait = max(wait, int(e.headers.get('Retry-After', wait)))
+                except (TypeError, ValueError):
+                    pass
+            print('  error', code or e, '- reintento en', wait, 's')
+            time.sleep(min(wait, 120))
     if sha256 and hashlib.sha256(data).hexdigest() != sha256:
         raise SystemExit('SHA-256 incorrecto: ' + url)
     return data
