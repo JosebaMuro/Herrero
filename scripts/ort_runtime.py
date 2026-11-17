@@ -54,6 +54,26 @@ def patch_wide_path(pkg):
     print('  ->', src, 'ruta del modelo en UTF-16')
 
 
+DLL_BY_NAME = "DynamicLibrary.open('onnxruntime.dll')"
+DLL_BY_PATH = ("DynamicLibrary.open(File(Platform.resolvedExecutable).parent.path"
+               " + r'\\onnxruntime.dll')")
+
+
+def patch_dll_path(pkg):
+    """Windows trae su propio onnxruntime.dll (antiguo) en System32 y algunos componentes
+    del sistema lo cargan en el proceso. Abrirlo solo por nombre devuelve ese módulo ya
+    cargado en vez del 1.20 que va junto a herrero.exe, y Qwen3 falla con «Unrecognized
+    attribute: softcap for operator GroupQueryAttention». Se abre por ruta completa."""
+    src = os.path.join(pkg, 'lib', 'src', 'bindings', 'bindings.dart')
+    text = open(src, encoding='utf-8').read()
+    if DLL_BY_PATH not in text:
+        if DLL_BY_NAME not in text:
+            raise SystemExit('bindings.dart inesperado: ' + src)
+        text = text.replace(DLL_BY_NAME, DLL_BY_PATH)
+        open(src, 'w', encoding='utf-8').write(text)
+    print('  ->', src, 'onnxruntime.dll por ruta completa')
+
+
 def main(platform):
     pkg = package_dir()
     print('paquete:', pkg)
@@ -72,6 +92,7 @@ def main(platform):
             shutil.copyfileobj(src, out)
         print('  ->', dst, os.path.getsize(dst))
         patch_wide_path(pkg)
+        patch_dll_path(pkg)
     elif platform == 'linux':
         t = tarfile.open(fileobj=io.BytesIO(get(LINUX)))
         m = next(m for m in t.getmembers() if m.name.endswith('lib/libonnxruntime.so.1.20.1'))

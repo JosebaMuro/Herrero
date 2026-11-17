@@ -1,5 +1,12 @@
 # Historial de versiones
 
+## 3.4.1
+
+- **Windows**: el razonamiento con IA local (Qwen3) fallaba con «Unrecognized attribute: softcap for
+  operator GroupQueryAttention». Windows trae su propio ONNX Runtime antiguo en System32 y a veces
+  la app acababa usando ese en lugar del 1.20 que va con Herrero. Ahora se carga siempre el de la
+  carpeta de la app.
+
 ## 3.4.0
 
 - **Normativa de soldadura, herrería y calderería**: nueva pestaña «Normativa» en «Qué entiende
