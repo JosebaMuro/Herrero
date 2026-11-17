@@ -1,0 +1,40 @@
+name: Modelos de comprensión y razonamiento
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - scripts/prepare_reason.py
+      - .github/workflows/reason-model.yml
+
+permissions:
+  contents: write
+
+jobs:
+  reason:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Dependencias
+        run: pip install --no-cache-dir "onnx==1.17.0" "onnxruntime==1.20.1" "numpy<2.2" huggingface_hub tokenizers
+      - name: Descargar e5-small y Qwen3 0.6B / 1.7B (ONNX uint8) y comprobar con ORT 1.20.1
+        run: python scripts/prepare_reason.py
+      - name: Publicar en release de modelos de razonamiento
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: models-reason-v1
+          name: Modelos de comprensión y razonamiento (v1)
+          target_commitish: ${{ github.sha }}
+          prerelease: true
+          make_latest: false
+          body: |
+            Comprensión y razonamiento locales para Herrero (sin internet una vez descargados).
+            - multilingual-e5-small (licencia MIT): embeddings para reconocer la estructura pedida.
+            - Qwen3-0.6B (móvil) y Qwen3-1.7B (PC) (licencia Apache-2.0): convierten la petición en una ficha estructurada.
+            ONNX cuantizado a 8 bits (uint8) tal como lo publica transformers.js; necesita ONNX Runtime 1.20 (incluido en la app).
+            Descarga desde la app → Modelos IA.
+          files: out_reason/*
