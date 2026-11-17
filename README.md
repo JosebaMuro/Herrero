@@ -22,6 +22,8 @@ estructura según **CTE DB-SE-A / Eurocódigo 3** y genera:
 - Render 3D refinado: z-buffer por píxel y mapa de sombras; solo policarbonato, vidrio y malla son translúcidos.
 - Visión IA local para croquis (SmolVLM 256M en móvil, 500M en PC), descargable desde Modelos IA.
 - Motor ONNX Runtime 1.20, revisión de código y APK `arm64` más ligero para móviles actuales.
+- 3.0.1: arreglada la descarga de modelos IA en Android (faltaba el permiso de internet); las descargas
+  se reintentan solas y siguen donde se quedaron. Historial completo en [CHANGELOG.md](CHANGELOG.md).
 
 > ⚠️ Los resultados son un **predimensionado orientativo**. Deben ser revisados y firmados por un técnico competente antes de fabricar o montar.
 
