@@ -21,6 +21,8 @@
   reparto fiable (NNAPI solo en los modelos que lo admiten).
 - En PC, Automático pasa a usar la GPU (antes siempre CPU). Los modelos pequeños (comprensión y
   OCR) siguen en CPU en Automático porque arrancan antes y rinden igual.
+- Compilación: las descargas de ONNX Runtime se reintentan si Maven Central o NuGet limitan la
+  velocidad, y la CI de Windows comprueba que la app trae DirectML y vuelve a CPU sin GPU.
 
 ## 3.4.1
 
