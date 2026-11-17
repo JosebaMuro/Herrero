@@ -9,12 +9,15 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:share_plus/share_plus.dart';
 
+import '../cad/cad_pdf.dart';
+import '../cad/collada.dart';
+import '../cad/dxf.dart';
+import '../cad/sheets.dart';
 import '../engine/bom.dart';
 import '../engine/materials.dart';
 import '../engine/model.dart';
 import '../views/drawing_utils.dart';
 import '../views/iso_view.dart';
-import '../views/plan_view.dart';
 import '../views/render_view.dart';
 
 String _n(double v, [int d = 1]) => v.toStringAsFixed(d).replaceAll('.', ',');
@@ -87,11 +90,6 @@ Future<Uint8List> buildPdf(Design d,
   final render = await renderPng(d, finish, OrbitCamera());
   final iso = await _png(await paintToImage(
       (c, s) => IsoPainter(d).paint(c, s), const Size(1100, 760), 2));
-  final sheets = <Uint8List>[];
-  for (final v in SheetView.values) {
-    sheets.add(await _png(await paintToImage(
-        (c, s) => SheetPainter(d, v).paint(c, s), const Size(1188, 840), 2)));
-  }
 
   final s = d.spec;
   const head = pw.TextStyle(fontSize: 8, color: PdfColors.white);
@@ -272,14 +270,8 @@ Future<Uint8List> buildPdf(Design d,
       pw.Expanded(child: pw.Image(pw.MemoryImage(iso), fit: pw.BoxFit.contain)),
     ]),
   ));
-  // Planos
-  for (final img in sheets) {
-    doc.addPage(pw.Page(
-      pageFormat: PdfPageFormat.a4.landscape,
-      margin: const pw.EdgeInsets.all(12),
-      build: (ctx) => pw.Center(child: pw.Image(pw.MemoryImage(img), fit: pw.BoxFit.contain)),
-    ));
-  }
+  // Planos CAD vectoriales (A3 a tamaño real)
+  addCadPages(doc, buildSheets(d), reg, bold);
   return doc.save();
 }
 
@@ -301,6 +293,29 @@ Future<String> exportPdf(Design d, {Finish finish = Finish.galvanizado, Uint8Lis
   final bytes = await buildPdf(d, finish: finish, aiPhoto: aiPhoto);
   return saveAndShare(bytes, '${_slug(d)}.pdf', text: 'Proyecto Herrero');
 }
+
+/// Solo los planos CAD, en PDF vectorial A3 (color o negro para plotter).
+Future<String> exportCadPdf(Design d, {bool monochrome = false}) async {
+  final reg = pw.Font.ttf(await rootBundle.load('assets/fonts/Roboto-Regular.ttf'));
+  final bold = pw.Font.ttf(await rootBundle.load('assets/fonts/Roboto-Bold.ttf'));
+  final doc = pw.Document(title: 'Herrero – planos ${d.spec.type.label}', author: 'Herrero · Oficina técnica');
+  addCadPages(doc, buildSheets(d), reg, bold, monochrome: monochrome);
+  return saveAndShare(await doc.save(), '${_slug(d)}_planos.pdf', text: 'Planos Herrero');
+}
+
+/// Planos 2D en DXF (R12): todas las láminas a tamaño real, en mm.
+Future<String> exportSheetsDxf(Design d) =>
+    saveAndShare(sheetsDxf(buildSheets(d)), '${_slug(d)}_planos.dxf', text: 'Planos Herrero (DXF)');
+
+/// Modelo 3D en DXF (3DFACE por capas, en mm).
+Future<String> exportModelDxf(Design d, Finish finish) =>
+    saveAndShare(modelDxf(SceneMesh.groups(d, finish)), '${_slug(d)}_modelo3d.dxf', text: 'Modelo 3D Herrero (DXF)');
+
+/// Modelo 3D para SketchUp 2017 (Archivo > Importar > COLLADA .dae).
+Future<String> exportSketchUp(Design d, Finish finish) => saveAndShare(
+    colladaModel(SceneMesh.groups(d, finish), title: '${d.spec.type.label} ${dimsText(d.spec)}'),
+    '${_slug(d)}_sketchup.dae',
+    text: 'Modelo 3D Herrero para SketchUp');
 
 Future<String> exportPng(Uint8List png, Design d, String suffix) =>
     saveAndShare(png, '${_slug(d)}_$suffix.png');

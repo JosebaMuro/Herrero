@@ -6,6 +6,7 @@ import 'dart:ui' as ui;
 
 import '../engine/model.dart';
 import '../engine/profiles.dart';
+import '../cad/dxf.dart' show MeshGroup;
 import 'zbuffer.dart';
 
 export 'zbuffer.dart' show ZScene, ZView, renderZ;
@@ -131,56 +132,96 @@ class SceneMesh {
     for (final m in d.members) {
       s._member(m, alb, sp, detailed);
     }
-    // Zapatas y placas
-    final fs = d.footingSize > 0 ? d.footingSize : 0.0;
-    final col = d.members
-        .firstWhere((m) => m.role == MemberRole.column || m.role == MemberRole.post,
-            orElse: () => d.members.first)
-        .profile;
-    final pw = d.plates.isNotEmpty ? d.plates.first.w / 1000 : 0.3;
-    final ph = d.plates.isNotEmpty ? d.plates.first.h / 1000 : 0.3;
-    for (final f in d.footings) {
-      if (fs > 0) {
-        s._box(f + Vec3(0, 0, -0.02), const Vec3(1, 0, 0), const Vec3(0, 1, 0),
-            const Vec3(0, 0, 1), fs, fs, 0.08, const Vec3(0.62, 0.61, 0.58), 0.05);
-      }
-      final horiz = col.family != ProfileFamily.shs;
-      s._box(f + const Vec3(0, 0, 0.06), const Vec3(1, 0, 0), const Vec3(0, 1, 0),
-          const Vec3(0, 0, 1), horiz ? pw : pw, horiz ? ph : pw, 0.02, alb, sp);
-    }
-    if (roof) s._roof(d);
-    for (final sf in d.surfaces) {
-      if (!roof && sf.kind == SurfaceKind.roof) continue;
-      final (c, sp2, a, pat) = _surfaceLook(sf.kind, d.spec.roofing, alb);
-      s._quad(sf.a, sf.b, sf.c, sf.d, c, sp2, alpha: a, pattern: pat);
-    }
-    // Suelo de entreplanta
-    if (d.spec.type == StructureType.entreplanta) {
-      final x1 = d.frameX.last, y1 = d.gridY.last, z = d.spec.height;
-      final (c, sp2, a, pat) = _surfaceLook(SurfaceKind.floor, d.spec.roofing, alb);
-      s._quad(Vec3(0, 0, z + 0.01), Vec3(x1, 0, z + 0.01), Vec3(x1, y1, z + 0.01), Vec3(0, y1, z + 0.01), c, sp2,
-          alpha: a, pattern: pat);
-    }
-    // Cerramiento lateral de la nave: fachada trasera y hastial izquierdo
-    // (el resto se deja abierto para ver la estructura).
-    if (d.spec.cladding.isNotEmpty && d.spec.type == StructureType.nave && d.gridY.length > 1) {
-      final x1 = d.frameX.last, L = d.gridY.last, H = d.spec.height, rz = d.ridgeHeight;
-      final cl = d.spec.cladding;
-      final (Vec3 c, int pat) = cl.contains('bloque') || cl.contains('ladrillo')
-          ? (cl.contains('ladrillo') ? const Vec3(0.62, 0.36, 0.25) : const Vec3(0.70, 0.69, 0.66), ZPattern.concrete)
-          : (cl.contains('policarbonato')
-              ? (const Vec3(0.75, 0.82, 0.86), ZPattern.none)
-              : (cl.contains('sándwich') ? (const Vec3(0.84, 0.85, 0.86), ZPattern.sandwich) : (const Vec3(0.78, 0.79, 0.80), ZPattern.ribbed)));
-      final a = cl.contains('policarbonato') ? 0.45 : 1.0;
-      final off = 0.12;
-      s._quad(Vec3(0, L + off, 0), Vec3(x1, L + off, 0), Vec3(x1, L + off, H), Vec3(0, L + off, H), c, 0.25,
-          alpha: a, pattern: pat);
-      s._quad(Vec3(-off, 0, 0), Vec3(-off, L, 0), Vec3(-off, L, H), Vec3(-off, 0, H), c, 0.25, alpha: a, pattern: pat);
-      // piñón del hastial
-      s._tri(Vec3(-off, 0, H), Vec3(-off, L, H), Vec3(-off, L / 2, rz), c, 0.25, alpha: a, pattern: pat);
-    }
+    s._footings(d, alb, sp, concrete: true, plates: true);
+    s._envelope(d, alb, roof);
     return s;
   }
+
+  void _footings(Design d, Vec3 alb, double sp, {bool concrete = true, bool plates = true}) {
+      // Zapatas y placas
+      final fs = d.footingSize > 0 ? d.footingSize : 0.0;
+      final col = d.members
+          .firstWhere((m) => m.role == MemberRole.column || m.role == MemberRole.post,
+              orElse: () => d.members.first)
+          .profile;
+      final pw = d.plates.isNotEmpty ? d.plates.first.w / 1000 : 0.3;
+      final ph = d.plates.isNotEmpty ? d.plates.first.h / 1000 : 0.3;
+      for (final f in d.footings) {
+        if (fs > 0 && concrete) {
+          _box(f + Vec3(0, 0, -0.02), const Vec3(1, 0, 0), const Vec3(0, 1, 0),
+              const Vec3(0, 0, 1), fs, fs, 0.08, const Vec3(0.62, 0.61, 0.58), 0.05);
+        }
+        if (!plates) continue;
+        final horiz = col.family != ProfileFamily.shs;
+        _box(f + const Vec3(0, 0, 0.06), const Vec3(1, 0, 0), const Vec3(0, 1, 0),
+            const Vec3(0, 0, 1), horiz ? pw : pw, horiz ? ph : pw, 0.02, alb, sp);
+      }
+  }
+
+  /// Cubierta, suelos y cerramientos. [full] cubre toda la planta (para
+  /// exportar); en pantalla se deja media cubierta para ver la estructura.
+  /// [flush] recibe el nombre de cada bloque al terminarlo.
+  void _envelope(Design d, Vec3 alb, bool roof,
+      {bool full = false, void Function(String name, String layer)? flush}) {
+      if (roof) _roof(d, full: full);
+      flush?.call('Cubierta', 'CUBIERTA');
+      for (final k in SurfaceKind.values) {
+        for (final sf in d.surfaces) {
+          if (sf.kind != k || (!roof && sf.kind == SurfaceKind.roof)) continue;
+          final (c, sp2, a, pat) = _surfaceLook(sf.kind, d.spec.roofing, alb);
+          _quad(sf.a, sf.b, sf.c, sf.d, c, sp2, alpha: a, pattern: pat);
+        }
+        flush?.call(_surfaceName[k]!, _surfaceLayer[k]!);
+      }
+      // Suelo de entreplanta
+      if (d.spec.type == StructureType.entreplanta) {
+        final x1 = d.frameX.last, y1 = d.gridY.last, z = d.spec.height;
+        final (c, sp2, a, pat) = _surfaceLook(SurfaceKind.floor, d.spec.roofing, alb);
+        _quad(Vec3(0, 0, z + 0.01), Vec3(x1, 0, z + 0.01), Vec3(x1, y1, z + 0.01), Vec3(0, y1, z + 0.01), c, sp2,
+            alpha: a, pattern: pat);
+        flush?.call('Forjado', 'FORJADO');
+      }
+      // Cerramiento lateral de la nave: fachada trasera y hastial izquierdo
+      // (el resto se deja abierto para ver la estructura).
+      if (d.spec.cladding.isNotEmpty && d.spec.type == StructureType.nave && d.gridY.length > 1) {
+        final x1 = d.frameX.last, L = d.gridY.last, H = d.spec.height, rz = d.ridgeHeight;
+        final cl = d.spec.cladding;
+        final (Vec3 c, int pat) = cl.contains('bloque') || cl.contains('ladrillo')
+            ? (cl.contains('ladrillo') ? const Vec3(0.62, 0.36, 0.25) : const Vec3(0.70, 0.69, 0.66), ZPattern.concrete)
+            : (cl.contains('policarbonato')
+                ? (const Vec3(0.75, 0.82, 0.86), ZPattern.none)
+                : (cl.contains('sándwich') ? (const Vec3(0.84, 0.85, 0.86), ZPattern.sandwich) : (const Vec3(0.78, 0.79, 0.80), ZPattern.ribbed)));
+        final a = cl.contains('policarbonato') ? 0.45 : 1.0;
+        final off = 0.12;
+        _quad(Vec3(0, L + off, 0), Vec3(x1, L + off, 0), Vec3(x1, L + off, H), Vec3(0, L + off, H), c, 0.25,
+            alpha: a, pattern: pat);
+        _quad(Vec3(-off, 0, 0), Vec3(-off, L, 0), Vec3(-off, L, H), Vec3(-off, 0, H), c, 0.25, alpha: a, pattern: pat);
+        // piñón del hastial
+        _tri(Vec3(-off, 0, H), Vec3(-off, L, H), Vec3(-off, L / 2, rz), c, 0.25, alpha: a, pattern: pat);
+        flush?.call('Cerramiento', 'CERRAMIENTO');
+      }
+  }
+
+  static const _surfaceName = {
+    SurfaceKind.roof: 'Cubierta',
+    SurfaceKind.floor: 'Suelo',
+    SurfaceKind.grating: 'Rejilla tramex',
+    SurfaceKind.panel: 'Panel',
+    SurfaceKind.mesh: 'Malla',
+    SurfaceKind.glass: 'Vidrio',
+    SurfaceKind.wall: 'Muro',
+    SurfaceKind.wood: 'Madera',
+  };
+  static const _surfaceLayer = {
+    SurfaceKind.roof: 'CUBIERTA',
+    SurfaceKind.floor: 'SUELO',
+    SurfaceKind.grating: 'TRAMEX',
+    SurfaceKind.panel: 'PANELES',
+    SurfaceKind.mesh: 'MALLA',
+    SurfaceKind.glass: 'VIDRIO',
+    SurfaceKind.wall: 'MUROS',
+    SurfaceKind.wood: 'MADERA',
+  };
 
   void _member(Member m, Vec3 alb, double sp, bool detailed) {
     final d = (m.b - m.a);
@@ -277,6 +318,60 @@ class SceneMesh {
     tris.add(_Tri(a, b, c, alb, sp, alpha: alpha, castsShadow: alpha > 0.7, pattern: pattern));
   }
 
+  /// Modelo por piezas para exportar (DXF 3D y SketchUp): un grupo por
+  /// barra, placas, zapatas y cada tipo de cerramiento, en metros.
+  static List<MeshGroup> groups(Design d, Finish finish) {
+    final s = SceneMesh._(const Vec3(0, 0, 0), 1, false);
+    final out = <MeshGroup>[];
+    void flush(String name, String layer) {
+      if (s.tris.isEmpty) return;
+      final t0 = s.tris.first;
+      final xyz = <double>[];
+      for (final t in s.tris) {
+        xyz.addAll([t.a.x, t.a.y, t.a.z, t.b.x, t.b.y, t.b.z, t.c.x, t.c.y, t.c.z]);
+      }
+      out.add(MeshGroup(name, layer, xyz, t0.albedo.x, t0.albedo.y, t0.albedo.z,
+          alpha: t0.alpha));
+      s.tris.clear();
+    }
+
+    final alb = finish.albedo, sp = finish.specular;
+    for (final m in d.members) {
+      s._member(m, alb, sp, true);
+      final mk = m.mark.isEmpty ? '' : '${m.mark} ';
+      flush('$mk${m.role.label} ${m.profile.name}', _roleLayer(m.role));
+    }
+    s._footings(d, alb, sp, concrete: false, plates: true);
+    flush('Placas de anclaje', 'PLACAS');
+    s._footings(d, alb, sp, concrete: true, plates: false);
+    flush('Cimentación', 'CIMENTACION');
+    s._envelope(d, alb, true, full: true, flush: flush);
+    flush('Otros', 'OTROS');
+    return out;
+  }
+
+  static String _roleLayer(MemberRole r) => switch (r) {
+        MemberRole.column => 'PILARES',
+        MemberRole.rafter => 'DINTELES',
+        MemberRole.purlin => 'CORREAS',
+        MemberRole.beam => 'VIGAS',
+        MemberRole.joist => 'VIGUETAS',
+        MemberRole.tie => 'ATADOS',
+        MemberRole.brace => 'ARRIOSTRAMIENTO',
+        MemberRole.post => 'MONTANTES',
+        MemberRole.handrail => 'PASAMANOS',
+        MemberRole.gablePost => 'PILARILLOS',
+        MemberRole.haunch => 'CARTELAS',
+        MemberRole.baluster => 'BARROTES',
+        MemberRole.stringer => 'ZANCAS',
+        MemberRole.tread => 'PELDANOS',
+        MemberRole.chordTop || MemberRole.chordBottom => 'CORDONES',
+        MemberRole.diagonal => 'DIAGONALES',
+        MemberRole.strut => 'MONTANTES_CERCHA',
+        MemberRole.frame => 'BASTIDOR',
+        MemberRole.rail => 'LARGUEROS',
+      };
+
   /// Empaqueta la malla para el rasterizador (listas tipadas, apto para isolate).
   ZScene pack() {
     final data = Float32List(tris.length * zStride);
@@ -348,7 +443,7 @@ class SceneMesh {
     return (const Vec3(0.78, 0.79, 0.80), 0.3, 1, ZPattern.ribbed);
   }
 
-  void _roof(Design d) {
+  void _roof(Design d, {bool full = false}) {
     final r = d.spec.roofing;
     if (r.contains('sin cubierta') ||
         (d.spec.type != StructureType.nave && d.spec.type != StructureType.marquesina)) {
@@ -356,7 +451,7 @@ class SceneMesh {
     }
     final x1 = d.frameX.last;
     // cubrir la mitad de la longitud para dejar ver la estructura
-    final xr = d.frameX.length > 2 ? d.frameX[(d.frameX.length / 2).floor()] : x1;
+    final xr = full ? x1 + 0.25 : (d.frameX.length > 2 ? d.frameX[(d.frameX.length / 2).floor()] : x1);
     final purl = d.members.where((m) => m.role == MemberRole.purlin).toList();
     final ph = purl.isEmpty ? 0.1 : purl.first.profile.h / 1000;
     final (color, _, alpha, pat) = _roofLook(r);

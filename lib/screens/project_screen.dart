@@ -13,7 +13,9 @@ import '../engine/profiles.dart';
 import '../services/export.dart';
 import 'package:flutter/gestures.dart';
 import '../views/iso_view.dart';
-import '../views/plan_view.dart';
+import '../cad/cad.dart';
+import '../cad/cad_painter.dart';
+import '../cad/sheets.dart';
 import '../views/render_view.dart';
 import '../views/zrender_view.dart';
 import 'ai_photo_screen.dart';
@@ -69,6 +71,27 @@ class _ProjectScreenState extends State<ProjectScreen> with SingleTickerProvider
     }
   }
 
+  /// Exportaciones CAD: planos PDF/DXF, modelo 3D DXF y SketchUp 2017 (.dae).
+  Future<void> _exportCad(String kind) async {
+    setState(() => _exporting = true);
+    try {
+      final path = switch (kind) {
+        'cadpdf' => await exportCadPdf(d),
+        'cadpdfbw' => await exportCadPdf(d, monochrome: true),
+        'dxf2d' => await exportSheetsDxf(d),
+        'dxf3d' => await exportModelDxf(d, _finish),
+        _ => await exportSketchUp(d, _finish),
+      };
+      _toast(kind == 'dae'
+          ? 'Guardado en $path. En SketchUp 2017: Archivo > Importar > COLLADA (*.dae).'
+          : 'Guardado en $path');
+    } catch (e) {
+      _toast('Error al exportar: $e');
+    } finally {
+      if (mounted) setState(() => _exporting = false);
+    }
+  }
+
   void _toast(String m) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
@@ -97,6 +120,7 @@ class _ProjectScreenState extends State<ProjectScreen> with SingleTickerProvider
                 if (v == 'pdf') _exportPdf();
                 if (v == 'print') _printPdf();
                 if (v == 'csv') _exportCsv();
+                if (const {'cadpdf', 'cadpdfbw', 'dxf2d', 'dxf3d', 'dae'}.contains(v)) _exportCad(v);
                 if (v == 'models') {
                   Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const ModelsScreen()));
                 }
@@ -105,6 +129,12 @@ class _ProjectScreenState extends State<ProjectScreen> with SingleTickerProvider
                 PopupMenuItem(value: 'pdf', child: ListTile(leading: Icon(Icons.picture_as_pdf), title: Text('Proyecto completo (PDF)'))),
                 PopupMenuItem(value: 'print', child: ListTile(leading: Icon(Icons.print), title: Text('Imprimir / vista previa'))),
                 PopupMenuItem(value: 'csv', child: ListTile(leading: Icon(Icons.table_chart), title: Text('Despiece (CSV / Excel)'))),
+                PopupMenuDivider(),
+                PopupMenuItem(value: 'cadpdf', child: ListTile(leading: Icon(Icons.architecture), title: Text('Planos CAD A3 (PDF)'))),
+                PopupMenuItem(value: 'cadpdfbw', child: ListTile(leading: Icon(Icons.print_outlined), title: Text('Planos CAD para plotter (PDF B/N)'))),
+                PopupMenuItem(value: 'dxf2d', child: ListTile(leading: Icon(Icons.draw_outlined), title: Text('Planos 2D (DXF)'))),
+                PopupMenuItem(value: 'dxf3d', child: ListTile(leading: Icon(Icons.view_in_ar), title: Text('Modelo 3D (DXF)'))),
+                PopupMenuItem(value: 'dae', child: ListTile(leading: Icon(Icons.home_work_outlined), title: Text('SketchUp 2017 (.dae)'))),
                 PopupMenuDivider(),
                 PopupMenuItem(value: 'models', child: ListTile(leading: Icon(Icons.auto_awesome), title: Text('Modelos de IA local'))),
               ],
@@ -724,24 +754,35 @@ class _SheetsTab extends StatefulWidget {
 }
 
 class _SheetsTabState extends State<_SheetsTab> {
-  SheetView view = SheetView.front;
+  late List<CadSheet> sheets = buildSheets(widget.d);
+  int sel = 0;
+  bool mono = false;
   final _key = GlobalKey();
+
+  @override
+  void didUpdateWidget(covariant _SheetsTab old) {
+    super.didUpdateWidget(old);
+    if (old.d != widget.d) {
+      sheets = buildSheets(widget.d);
+      sel = sel.clamp(0, sheets.length - 1);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final sh = sheets[sel];
     return Column(children: [
-      Padding(
-        padding: const EdgeInsets.all(8),
-        child: SingleChildScrollView(
+      SizedBox(
+        height: 52,
+        child: ListView.separated(
           scrollDirection: Axis.horizontal,
-          child: SegmentedButton<SheetView>(
-            segments: const [
-              ButtonSegment(value: SheetView.front, label: Text('Alzado frontal')),
-              ButtonSegment(value: SheetView.side, label: Text('Alzado lateral')),
-              ButtonSegment(value: SheetView.plan, label: Text('Planta')),
-              ButtonSegment(value: SheetView.detail, label: Text('Placa anclaje')),
-            ],
-            selected: {view},
-            onSelectionChanged: (s) => setState(() => view = s.first),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+          itemCount: sheets.length,
+          separatorBuilder: (_, _) => const SizedBox(width: 6),
+          itemBuilder: (_, i) => ChoiceChip(
+            label: Text('${sheets[i].number} ${sheets[i].title}'),
+            selected: i == sel,
+            onSelected: (_) => setState(() => sel = i),
           ),
         ),
       ),
@@ -749,13 +790,13 @@ class _SheetsTabState extends State<_SheetsTab> {
         child: Container(
           color: const Color(0xFF90A4AE),
           child: InteractiveViewer(
-            maxScale: 10,
+            maxScale: 16,
             child: Center(
               child: AspectRatio(
-                aspectRatio: 1.414,
+                aspectRatio: sh.width / sh.height,
                 child: RepaintBoundary(
                   key: _key,
-                  child: CustomPaint(painter: SheetPainter(widget.d, view), size: Size.infinite),
+                  child: CustomPaint(painter: CadPainter(sh, monochrome: mono), size: Size.infinite),
                 ),
               ),
             ),
@@ -764,11 +805,18 @@ class _SheetsTabState extends State<_SheetsTab> {
       ),
       Padding(
         padding: const EdgeInsets.all(6),
-        child: TextButton.icon(
-          icon: const Icon(Icons.download),
-          label: Text('Guardar ${view.number} como imagen'),
-          onPressed: () => _saveBoundary(context, _key, widget.d, view.number),
-        ),
+        child: Wrap(alignment: WrapAlignment.center, spacing: 4, children: [
+          TextButton.icon(
+            icon: Icon(mono ? Icons.palette_outlined : Icons.contrast),
+            label: Text(mono ? 'Color' : 'Blanco y negro'),
+            onPressed: () => setState(() => mono = !mono),
+          ),
+          TextButton.icon(
+            icon: const Icon(Icons.download),
+            label: Text('Guardar ${sh.number} como imagen'),
+            onPressed: () => _saveBoundary(context, _key, widget.d, sh.number),
+          ),
+        ]),
       ),
     ]);
   }
