@@ -1,5 +1,14 @@
 # Historial de versiones
 
+## 3.2.0
+
+- **iPhone y iPad** (iOS 15 o posterior): nuevo `Herrero-ios.ipa` sin firmar en cada versión. Se
+  instala gratis con Sideloadly o AltStore y un Apple ID normal (la firma dura 7 días). Incluye lo
+  mismo que Android: cálculo, planos, exportación, importar plano con la cámara e IA local con ONNX
+  Runtime 1.20.
+- Los modelos IA quedan fuera de la copia de seguridad de iCloud.
+- La carpeta Herrero con los ficheros exportados aparece en la app Archivos del iPhone.
+
 ## 3.1.0
 
 - **Comprensión de la petición**: antes de calcular, la app enseña la ficha «Lo que he entendido»

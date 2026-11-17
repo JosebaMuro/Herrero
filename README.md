@@ -1,6 +1,6 @@
 # Herrero · Oficina técnica de estructuras metálicas
 
-App ligera para **Android y Windows** que, a partir de una descripción en lenguaje natural
+App ligera para **Android, iPhone y Windows** que, a partir de una descripción en lenguaje natural
 ("nave a dos aguas de 30 x 15 m, 6 m al alero, panel sándwich, en Vitoria"), predimensiona la
 estructura según **CTE DB-SE-A / Eurocódigo 3** y genera:
 
@@ -14,6 +14,11 @@ estructura según **CTE DB-SE-A / Eurocódigo 3** y genera:
 - **Modelo 3D** exportable a **DXF** y a **SketchUp 2017** (COLLADA .dae: Archivo > Importar).
 - **Render 3D** con z-buffer y sombras, y **foto realista con IA local** (sin internet).
 - **Importar plano**: PDF de CAD, PDF escaneado, foto o croquis a mano (OCR y visión IA locales).
+
+## Novedades de la v3.2
+
+- **App para iPhone y iPad** (iOS 15 o posterior): `Herrero-ios.ipa`, gratis con tu Apple ID (instrucciones
+  en Descargas). Incluye la IA local; los modelos no ocupan tu copia de iCloud.
 
 ## Novedades de la v3.1
 
@@ -43,6 +48,24 @@ Los binarios se generan con GitHub Actions y se publican en *Releases*:
 - `Herrero-android.apk` — Android universal (también móviles antiguos de 32 bits).
 - `Herrero-windows-setup.exe` — instalador para Windows 10/11 x64.
 - `Herrero-windows-portable.zip` — versión portable (descomprimir y ejecutar `herrero.exe`).
+- `Herrero-ios.ipa` — iPhone y iPad con iOS 15 o posterior, sin firmar (ver abajo).
+
+### Instalar en iPhone gratis (sin cuenta de desarrollador)
+
+El `.ipa` va sin firmar: lo firma tu propio Apple ID gratuito al instalarlo desde un ordenador.
+
+1. En el ordenador (Windows o Mac) instala [Sideloadly](https://sideloadly.io). En Windows necesita
+   además iTunes e iCloud descargados de la web de Apple (no de Microsoft Store).
+2. Conecta el iPhone por cable, desbloquéalo y acepta «Confiar en este ordenador».
+3. Abre Sideloadly, arrastra `Herrero-ios.ipa`, escribe tu Apple ID y pulsa **Start**.
+4. En el iPhone: *Ajustes > General > VPN y gestión de dispositivos* > tu Apple ID > **Confiar**.
+5. Con iOS 16 o posterior: *Ajustes > Privacidad y seguridad > Modo de desarrollador* > activar
+   (el iPhone se reinicia).
+
+La firma gratuita dura **7 días**: después la app no abre hasta que la vuelvas a instalar con
+Sideloadly; tus proyectos y modelos se conservan. Como alternativa, [AltStore](https://altstore.io)
+la renueva sola por wifi si el ordenador tiene AltServer abierto. Con un Apple ID gratuito caben
+3 apps instaladas así a la vez.
 
 ## Tipos de estructura soportados
 

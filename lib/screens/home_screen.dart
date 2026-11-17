@@ -107,7 +107,7 @@ class _HomeScreenState extends State<HomeScreen> {
             onPressed: () => showAboutDialog(
               context: context,
               applicationName: 'Herrero',
-              applicationVersion: '3.1.0',
+              applicationVersion: '3.2.0',
               children: const [
                 Text('Predimensionado de estructuras metálicas según CTE DB-SE-A y Eurocódigo 3, '
                     'con despiece, soldaduras, planos tipo CAD (PDF y DXF), modelo 3D para SketchUp, '

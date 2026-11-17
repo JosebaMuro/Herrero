@@ -111,6 +111,8 @@ jobs:
       - run: flutter build ios --release --no-codesign
       - name: IPA sin firmar
         run: |
+          grep -E "^  - onnxruntime-(objc|c) \(1\.20\.0\)" ios/Podfile.lock \
+            || { echo "::error::el pod de ONNX Runtime no es 1.20.0"; grep -i onnxruntime ios/Podfile.lock; exit 1; }
           nm -gU build/ios/iphoneos/Runner.app/Runner | grep -q " _OrtGetApiBase$" \
             || { echo "::error::ONNX Runtime no está exportado en el ejecutable"; exit 1; }
           mkdir -p Payload
