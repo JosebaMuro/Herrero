@@ -1,6 +1,9 @@
+import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../engine/catalog.dart';
+import '../engine/formacion.dart';
 import '../engine/model.dart';
 import '../engine/normativa.dart';
 import '../engine/parser.dart';
@@ -15,7 +18,7 @@ class CatalogScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 4,
+      length: 5,
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Qué entiende Herrero'),
@@ -24,9 +27,10 @@ class CatalogScreen extends StatelessWidget {
             Tab(text: 'Materiales', icon: Icon(Icons.layers)),
             Tab(text: 'Vocabulario', icon: Icon(Icons.menu_book)),
             Tab(text: 'Normativa', icon: Icon(Icons.gavel)),
+            Tab(text: 'Formación', icon: Icon(Icons.school)),
           ]),
         ),
-        body: const TabBarView(children: [_Typologies(), _Materials(), _Glossary(), _Norms()]),
+        body: const TabBarView(children: [_Typologies(), _Materials(), _Glossary(), _Norms(), _Training()]),
       ),
     );
   }
@@ -208,6 +212,106 @@ class _NormsState extends State<_Norms> {
                       Text(n.summary),
                       for (final p in n.points)
                         Padding(padding: const EdgeInsets.only(top: 4), child: Text('•  $p')),
+                    ],
+                  ),
+                ),
+            ],
+        ]),
+      ),
+    ]);
+  }
+}
+
+/// Formación reglada y acreditación en calderería, soldadura y estructuras
+/// metálicas, con enlaces a las fuentes oficiales.
+class _Training extends StatefulWidget {
+  const _Training();
+  @override
+  State<_Training> createState() => _TrainingState();
+}
+
+class _TrainingState extends State<_Training> {
+  String _q = '';
+
+  Future<void> _open(SourceLink l) async {
+    final messenger = ScaffoldMessenger.of(context);
+    var ok = false;
+    try {
+      ok = await launchUrl(Uri.parse(l.url), mode: LaunchMode.externalApplication);
+    } catch (_) {}
+    if (!ok) {
+      await Clipboard.setData(ClipboardData(text: l.url));
+      messenger.showSnackBar(SnackBar(content: Text('No se pudo abrir. Enlace copiado: ${l.url}')));
+    }
+  }
+
+  Future<void> _copy(SourceLink l) async {
+    final messenger = ScaffoldMessenger.of(context);
+    await Clipboard.setData(ClipboardData(text: l.url));
+    messenger.showSnackBar(SnackBar(content: Text('Enlace copiado: ${l.url}')));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final q = normalize(_q.trim());
+    bool hit(Training t) =>
+        q.isEmpty ||
+        normalize(t.code).contains(q) ||
+        normalize(t.title).contains(q) ||
+        normalize(t.level).contains(q) ||
+        normalize(t.summary).contains(q) ||
+        t.points.any((p) => normalize(p).contains(q));
+    return Column(children: [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+        child: TextField(
+          decoration: const InputDecoration(
+              prefixIcon: Icon(Icons.search), hintText: 'Buscar (TIG, calderería, FMEC0208, 9606, grado superior…)'),
+          onChanged: (v) => setState(() => _q = v),
+        ),
+      ),
+      Expanded(
+        child: ListView(padding: const EdgeInsets.all(12), children: [
+          Text('Títulos de FP, certificados profesionales, cualificaciones, homologación del soldador y diplomas '
+              'de soldadura, resumidos con enlace a la fuente oficial (TodoFP, INCUAL, SEPE, BOE, CESOL). Horas y '
+              'módulos pueden variar por comunidad autónoma: manda la fuente. Toca un enlace para abrirlo; '
+              'mantenlo pulsado para copiarlo.',
+              style: TextStyle(color: cs.onSurfaceVariant, fontSize: 13)),
+          for (final a in trainingAreas)
+            if (trainingLibrary.any((t) => t.area == a && hit(t))) ...[
+              Padding(
+                padding: const EdgeInsets.only(top: 12, bottom: 4),
+                child: Text(a, style: TextStyle(color: cs.primary, fontWeight: FontWeight.w700)),
+              ),
+              for (final t in trainingLibrary.where((t) => t.area == a && hit(t)))
+                Card(
+                  child: ExpansionTile(
+                    title: Text(t.code, style: const TextStyle(fontWeight: FontWeight.w600)),
+                    subtitle: Text([t.title, if (t.level.isNotEmpty) t.level, if (t.hours.isNotEmpty) t.hours].join(' · ')),
+                    childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                    expandedCrossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(t.summary),
+                      for (final p in t.points)
+                        Padding(padding: const EdgeInsets.only(top: 4), child: Text('•  $p')),
+                      if (t.links.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Wrap(spacing: 8, runSpacing: 4, children: [
+                          for (final l in t.links)
+                            Tooltip(
+                              message: l.url,
+                              child: InkWell(
+                                onLongPress: () => _copy(l),
+                                child: ActionChip(
+                                  avatar: const Icon(Icons.open_in_new, size: 16),
+                                  label: Text(l.label),
+                                  onPressed: () => _open(l),
+                                ),
+                              ),
+                            ),
+                        ]),
+                      ],
                     ],
                   ),
                 ),

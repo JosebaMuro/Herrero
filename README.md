@@ -15,6 +15,12 @@ estructura según **CTE DB-SE-A / Eurocódigo 3** y genera:
 - **Render 3D** con z-buffer y sombras, y **foto realista con IA local** (sin internet).
 - **Importar plano**: PDF de CAD, PDF escaneado, foto o croquis a mano (OCR y visión IA locales).
 
+## Novedades de la v4
+
+- Formación reglada de soldadura, calderería y estructuras (FP, certificados, cualificaciones y
+  homologaciones) con enlaces oficiales.
+- Tiempos por paso en la foto IA y paquete CUDA arreglado.
+
 ## Novedades de la v3.5
 
 - **IA acelerada por GPU / NPU** (Modelos IA → «Aceleración de la IA»), con vuelta a CPU automática:

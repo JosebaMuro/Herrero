@@ -1,11 +1,30 @@
 # Historial de versiones
 
-## 3.5.1
+## 4.0.0
 
+- **Formación reglada** de calderería, soldadura y estructuras metálicas: nueva pestaña «Formación»
+  en «Qué entiende Herrero», con buscador y enlaces a las fuentes oficiales (TodoFP, INCUAL, SEPE,
+  BOE, Procomún, RUCT, ESCO, CESOL/IIW, Fundación del Metal):
+  - FP: Grado Básico en Fabricación y Montaje, Técnico en Soldadura y Calderería (módulos 0006,
+    0007, 0091–0095), Técnico Superior en Construcciones Metálicas, ciclos afines y cursos de
+    especialización.
+  - Certificados profesionales vigentes de soldadura (FMEC0119_2 MIG/MAG, FMEC0219_2 TIG,
+    FMEC0319_2 electrodo, RD 569/2023) con la equivalencia de los derogados FMEC0110 y FMEC0210,
+    y los de tubería, producción y diseño de calderería y estructuras (FMEC0108/0109/0208/0209/0309).
+  - Cualificaciones del INCUAL (FME035_2, FME350_2, FME351_2, FME354_3, FME355_3, FME357_3,
+    FME684_2–686_2), grados A–E de la Ley 3/2022 y acreditación de la experiencia.
+  - Homologación del soldador (UNE-EN ISO 9606, 14732, 14731, 9712, ASME IX / AWS D1.1),
+    diplomas IIW/EWF y formación de prevención del convenio del metal (TPC/TPM).
+  - Los enlaces se abren en el navegador; mantenerlos pulsados los copia. Resúmenes propios,
+    sin copiar textos oficiales.
+- **Paquete NVIDIA CUDA (Windows)**: fallaba con «Error HTTP 404» porque Microsoft retiró de
+  GitHub el zip de ONNX Runtime 1.20.1 para GPU. Ahora se descarga del paquete oficial de Microsoft
+  en NuGet (mismas librerías, ≈250 MB). La CI descarga, instala y carga de verdad los paquetes CUDA
+  y OpenVINO en Windows.
 - **Foto IA**: debajo de la foto se muestra cuánto tarda cada paso (texto, render, cargar el
-  generador, generar, revelar) y con qué motor (CPU, NNAPI, DirectML…), para saber dónde se va el
-  tiempo en cada móvil o PC. En Android, NNAPI no puede ejecutar el generador int8: esa parte va en
-  CPU elijas lo que elijas.
+  generador, generar, revelar) y con qué motor (CPU, NNAPI, DirectML…). En Android, NNAPI no puede
+  ejecutar el generador int8 de SD-Turbo: esa parte va en CPU elijas lo que elijas, por eso CPU y
+  NPU tardan lo mismo. Con estos tiempos se decidirá si merece la pena un modelo para la NPU.
 
 ## 3.5.0
 
