@@ -151,6 +151,41 @@ jobs:
             Herrero-linux-x64.tar.gz
             instalar-herrero-ubuntu.sh
 
+  instalador:
+    name: Instalador de la suite en Ubuntu 24.04
+    runs-on: ubuntu-24.04
+    needs: linux
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: Herrero-linux
+      - name: Instalar Herrero, Oficina y Prueba (venv compartido, modo terminal)
+        run: |
+          sudo scripts/instalar-ubuntu.sh --sin-menu --usuario "$USER" --proyectos herrero,oficina,prueba \
+            --tarball Herrero-linux-x64.tar.gz --sin-nvidia --sin-modelos
+      - name: Comprobar
+        run: |
+          set -x
+          herrero-tui --calcular "marquesina para 3 coches en Burgos" --sin-ia | head -5
+          ls /opt/suite/venv
+          test "$(ls /opt/suite/venv | wc -l)" = 1   # Oficina y Prueba comparten un venv
+          du -sh /opt/suite/venv/*
+          for p in 8775 8765; do
+            for i in $(seq 60); do curl -fsS -o /dev/null "http://127.0.0.1:$p/" && break; sleep 2; done
+            curl -fsS -o /dev/null -w "puerto $p: HTTP %{http_code}\n" "http://127.0.0.1:$p/"
+          done
+          systemctl get-default | grep -q multi-user.target
+          test -x /usr/local/bin/suite && test -x /usr/local/sbin/herrero-modo
+          sudo -n /usr/local/sbin/herrero-modo tui   # regla de sudo sin contraseña
+          grep -q "suite-tui" ~/.profile
+          sudo scripts/instalar-ubuntu.sh --deshacer --usuario "$USER"
+          systemctl get-default | grep -q graphical.target
+      - name: Diagnóstico si falla
+        if: failure()
+        run: |
+          sudo journalctl -u suite-oficina -u suite-prueba --no-pager | tail -60 || true
+
   ios:
     runs-on: macos-latest
     needs: test
