@@ -1,0 +1,29 @@
+name: Probar paquetes de aceleración (Windows)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [claude/project-thread-7cfq84]
+    paths: [lib/ai/accel.dart, lib/ai/model_manager.dart, test/gpu_pack_test.dart, .github/workflows/gpu-pack-test.yml]
+
+jobs:
+  pack:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        pack: [cuda, openvino]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.50.0"
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: python scripts/ort_runtime.py windows
+      - name: Descargar e instalar ${{ matrix.pack }}
+        shell: pwsh
+        run: |
+          $env:HERRERO_PACK_TEST = '${{ matrix.pack }}'
+          flutter test test/gpu_pack_test.dart
