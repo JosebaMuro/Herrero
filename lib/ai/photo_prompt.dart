@@ -1,4 +1,5 @@
 import '../engine/model.dart';
+import '../engine/profiles.dart';
 import '../views/render_view.dart';
 
 /// Ambiente de la foto IA.
@@ -71,14 +72,33 @@ String structureEnglish(StructureSpec s) => s.type.english;
 /// Prompt en inglés para la foto IA a partir del diseño.
 String photoPrompt(Design d, Finish f, PhotoScene scene, {bool roof = true}) {
   final s = d.spec;
+  final rail = s.type == StructureType.barandilla;
+  // CLIP solo lee 77 tokens: primero lo que define la forma (tipología, detalles
+  // de la barandilla y acabado) y al final el ambiente.
   final parts = <String>[
     'professional architectural photograph of a ${structureEnglish(s)}',
+    ...railingDetails(d),
     _finish(f),
-    'welded steel profiles, bolted connections, concrete footings',
+    if (!rail) 'welded steel profiles, bolted connections, concrete footings',
     if (s.type.hasRoof) (roof ? _roof(s.roofing) : 'exposed steel skeleton frame without cladding'),
-    if (s.railing) 'steel safety railing',
+    if (s.railing && !rail) 'steel safety railing',
     scene.english,
     'photorealistic, sharp focus, high detail, 35mm lens',
   ];
   return parts.join(', ');
+}
+
+/// Detalles de barandilla que se ven en el diseño (tubo redondo, doble pasamanos,
+/// relleno), para que la foto no se quede en la barandilla genérica.
+List<String> railingDetails(Design d) {
+  final rails = d.members.where((m) => m.role == MemberRole.handrail).toList();
+  if (rails.isEmpty) return const [];
+  final round = rails.every((m) => m.profile.family == ProfileFamily.chs || m.profile.family == ProfileFamily.round);
+  final heights = {for (final m in rails) (m.a.z * 10).round()};
+  final bars = d.members.where((m) => m.role == MemberRole.baluster).toList();
+  return [
+    if (round) 'round tube posts and handrails',
+    if (heights.length >= 2) 'double handrail at two heights',
+    if (bars.isNotEmpty) 'thin vertical ${bars.first.profile.family == ProfileFamily.round ? 'round ' : ''}bars',
+  ];
 }

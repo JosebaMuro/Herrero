@@ -253,10 +253,13 @@ class SceneMesh {
         _box(mid - w * (h / 2 - tf / 2), ax, f, w, len, b, tf, alb, sp);
         _box(mid, ax, f, w, len, tw, h - 2 * tf, alb, sp);
         break;
-      case ProfileFamily.shs:
-      case ProfileFamily.rhs:
       case ProfileFamily.round:
       case ProfileFamily.chs:
+        // tubo y redondo: prisma de 12 caras (8 en vista rápida) para que se vean redondos
+        _tube(mid, ax, f, w, len, h, alb, sp, detailed ? 12 : 8);
+        break;
+      case ProfileFamily.shs:
+      case ProfileFamily.rhs:
       case ProfileFamily.flat:
         _box(mid, ax, f, w, len, b, h, alb, sp);
         break;
@@ -274,6 +277,33 @@ class SceneMesh {
         _box(mid + f * (b / 2 - tw / 2), ax, f, w, len, tw, b, alb, sp);
         _box(mid + w * (b / 2 - tw / 2), ax, f, w, len, b, tw, alb, sp);
         break;
+    }
+  }
+
+  /// Cilindro de diámetro [dia] centrado en c, eje u, con tapas planas.
+  void _tube(Vec3 c, Vec3 u, Vec3 v, Vec3 w, double lu, double dia, Vec3 alb, double sp, int n) {
+    final r = dia / 2, hu = u * (lu / 2);
+    final ring = [
+      for (var i = 0; i < n; i++) v * (r * math.cos(2 * math.pi * i / n)) + w * (r * math.sin(2 * math.pi * i / n))
+    ];
+    final a0 = c - hu, a1 = c + hu;
+    for (var i = 0; i < n; i++) {
+      final p = ring[i], q = ring[(i + 1) % n];
+      final pa = a0 + p, qa = a0 + q, pb = a1 + p, qb = a1 + q;
+      // orientado hacia fuera (la normal apunta como el radio medio)
+      final out = (p + q) * 0.5;
+      if ((qa - pa).cross(pb - pa).dot(out) >= 0) {
+        _tris.add(_Tri(pa, qa, qb, alb, sp));
+        _tris.add(_Tri(pa, qb, pb, alb, sp));
+      } else {
+        _tris.add(_Tri(pa, qb, qa, alb, sp));
+        _tris.add(_Tri(pa, pb, qb, alb, sp));
+      }
+      // tapas
+      final ca = (qa - pa).cross(a0 - pa).dot(u) <= 0;
+      _tris.add(ca ? _Tri(a0, pa, qa, alb, sp) : _Tri(a0, qa, pa, alb, sp));
+      final cb = (qb - pb).cross(a1 - pb).dot(u) >= 0;
+      _tris.add(cb ? _Tri(a1, pb, qb, alb, sp) : _Tri(a1, qb, pb, alb, sp));
     }
   }
 

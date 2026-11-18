@@ -23,6 +23,9 @@ class SdRequest {
   final int size;
   final int steps;
   final double strength;
+
+  /// Pasos de difusión explícitos (img2img): si se dan, sustituyen a steps/strength.
+  final List<int>? timesteps;
   final Uint8List? initRgba; // size x size RGBA
   final int seed;
   final int threads;
@@ -39,6 +42,7 @@ class SdRequest {
     this.size = 512,
     this.steps = 2,
     this.strength = 0.5,
+    this.timesteps,
     this.initRgba,
     this.seed = 0,
     this.threads = 4,
@@ -284,7 +288,7 @@ Future<SdResult> _run(SdRequest req, void Function(double, String) progress) asy
   // 2) Latentes iniciales
   if (req.initRgba != null) {
     final k = math.max(1, math.min((req.steps * req.strength).floor(), req.steps));
-    ts = ts.sublist(req.steps - k);
+    ts = req.timesteps ?? ts.sublist(req.steps - k);
     progress(0.12, 'Codificando el render 3D…');
     final img = Float32List(3 * size * size);
     final px = req.initRgba!;

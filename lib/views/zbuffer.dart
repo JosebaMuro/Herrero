@@ -406,9 +406,15 @@ Uint8List renderZ(ZScene s, ZView v) {
     final ao = 0.75 + 0.25 * math.min(1.0, pz / 1.5);
     final fres = math.pow(1 - math.max(0.0, nx * vx + ny * vy + nz * vz), 4) * 0.25;
     final dl = ndl * vis * 1.05;
-    var cr = ar * (sunR * dl + amr * 0.55 * ao) + spec + fres * skyR;
-    var cg = ag * (sunG * dl + amg * 0.55 * ao) + spec + fres * skyG;
-    var cb = ab * (sunB * dl + amb * 0.55 * ao) + spec + fres * skyB;
+    // reflejo del entorno (cielo arriba, suelo abajo) en metales pulidos o
+    // satinados: da el brillo del inox y el aluminio aunque estén a la sombra
+    final ndv = nx * vx + ny * vy + nz * vz;
+    final rz = 2 * ndv * nz - vz;
+    final hr = 0.5 + 0.5 * rz;
+    final env = spc * spc * 0.45 * ao;
+    var cr = ar * (sunR * dl + amr * 0.55 * ao) + spec + fres * skyR + env * (skyR * hr + gndR * (1 - hr) * 1.4);
+    var cg = ag * (sunG * dl + amg * 0.55 * ao) + spec + fres * skyG + env * (skyG * hr + gndG * (1 - hr) * 1.4);
+    var cb = ab * (sunB * dl + amb * 0.55 * ao) + spec + fres * skyB + env * (skyB * hr + gndB * (1 - hr) * 1.4);
     final fog = (1 - math.exp(-zc / (r * 9))).clamp(0.0, 0.5);
     out[0] = cr * (1 - fog) + fogR * fog;
     out[1] = cg * (1 - fog) + fogG * fog;

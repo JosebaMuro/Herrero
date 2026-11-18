@@ -26,6 +26,19 @@
   una carpeta o USB todo lo necesario (`.deb` del controlador y del firmware, paquete CUDA,
   modelos) para instalar **sin conexión** con `--desde`.
 
+## 4.0.1 (2026-11-18)
+
+- **Barandillas como se piden**: «doble pasamanos» (también «dos pasamanos», «pasamanos a dos
+  alturas») añade un segundo pasamanos a 0,70 m sobre soportes por la cara interior (CTE DB-SUA 1
+  §4.2.4), con sus soldaduras, en barandillas, escaleras y pasarelas.
+- **Barandillas de inox o aluminio de tubo redondo**: montantes, pasamanos y larguero de tubo CHS y
+  barrotes de redondo macizo, en lugar de tubo cuadrado. También al pedir «tubo redondo» o «tubular».
+- **Render**: los tubos y redondos se dibujan redondos (antes eran cajas) y el inox y el aluminio
+  reflejan el cielo, así que se ven metálicos aunque estén a la sombra.
+- **Foto IA**: encuadre más cerrado y «Equilibrada» parte de un paso menos ruidoso (t = 374 en
+  lugar de 499), con el mismo tiempo. Antes las piezas finas se deformaban (una barandilla podía
+  salir como un puente). El texto para la IA pone primero la forma y quita lo que no aplica.
+
 ## 4.0.0
 
 - **Formación reglada** de calderería, soldadura y estructuras metálicas: nueva pestaña «Formación»

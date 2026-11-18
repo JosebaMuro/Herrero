@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:herrero/ai/photo_prompt.dart';
 import 'package:herrero/cad/sheets.dart';
 import 'package:herrero/engine/designer.dart';
 import 'package:herrero/engine/model.dart';
@@ -85,5 +86,25 @@ void main() {
     final d = designFromPrompt('reja de forja para ventana de 1 m de ancho y 1,2 m de alto');
     expect(d.checks.firstWhere((c) => c.element == 'Barrotes').utilization, lessThanOrEqualTo(1));
     expect(d.members.where((m) => m.role == MemberRole.baluster).first.profile.name, 'R16');
+  });
+
+  test('barandilla inox de doble pasamanos: tubo redondo y dos pasamanos', () {
+    final d = designFromPrompt('barandilla de acero inoxidable de doble pasamanos de 1,10 m de altura y 4 m de largo');
+    expect(d.spec.height, closeTo(1.10, 1e-6));
+    final posts = d.members.where((m) => m.role == MemberRole.post).toList();
+    expect(posts.every((m) => m.profile.name.startsWith('CHS')), isTrue, reason: posts.first.profile.name);
+    final rails = d.members.where((m) => m.role == MemberRole.handrail).toList();
+    expect(rails.every((m) => m.profile.name.startsWith('CHS')), isTrue);
+    final zs = rails.map((m) => m.a.z).toSet();
+    expect(zs, containsAll([closeTo(1.10, 1e-6), closeTo(0.70, 1e-6)]));
+    final bars = d.members.where((m) => m.role == MemberRole.baluster);
+    expect(bars, isNotEmpty);
+    expect(bars.first.profile.name, startsWith('R'));
+    expect(d.hypotheses.join(' '), contains('Doble pasamanos'));
+    expect(railingDetails(d).join(' '), contains('double handrail'));
+    // sin pedirlo: acero al carbono, tubo cuadrado y un solo pasamanos
+    final plain = designFromPrompt('barandilla de 4 m y 1,10 m de altura');
+    expect(plain.members.where((m) => m.role == MemberRole.handrail).length, 1);
+    expect(plain.members.firstWhere((m) => m.role == MemberRole.post).profile.name, startsWith('SHS'));
   });
 }

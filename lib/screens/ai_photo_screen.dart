@@ -90,7 +90,11 @@ class _AiPhotoScreenState extends State<AiPhotoScreen> {
 
   Future<void> _prepare() async {
     final size = mgr.size;
-    final (rgba, img) = await renderHq(widget.d, widget.finish, widget.cam,
+    // Encuadre más cerrado que en el visor: cuanto más grande sale la estructura,
+    // mejor conserva la IA los perfiles finos (a 384 px cada barrote son 1–2 píxeles).
+    final c = widget.cam;
+    final cam = OrbitCamera(yaw: c.yaw, pitch: c.pitch, distance: math.min(c.distance, 2.0));
+    final (rgba, img) = await renderHq(widget.d, widget.finish, cam,
         width: size, height: size, ss: 2, sun: widget.sun, roof: widget.roof);
     final bd = await img.toByteData(format: ui.ImageByteFormat.png);
     img.dispose();

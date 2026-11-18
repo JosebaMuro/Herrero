@@ -47,4 +47,15 @@ void main() {
       });
     });
   }
+
+  // Caso de Joseba: inox con doble pasamanos (antes salía de tubo cuadrado y con un solo pasamanos).
+  const inoxRail = 'barandilla de acero inoxidable de doble pasamanos de 1,10 m de altura y 4 m de largo';
+  testWidgets('render barandilla inox doble pasamanos', (tester) async {
+    await tester.runAsync(() async {
+      final d = designFromPrompt(inoxRail);
+      final (_, ren) = await renderHq(d, finishFromSpec(d.spec.finish), OrbitCamera(), width: 900, height: 600, ss: 2);
+      expect(ren.width, 900);
+      if (out != null) await _save(ren, '$out/barandilla_inox_doble_render.png');
+    });
+  });
 }
