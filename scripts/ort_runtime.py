@@ -22,7 +22,8 @@ WINDOWS = ('https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime.dire
 DIRECTML = ('https://api.nuget.org/v3-flatcontainer/microsoft.ai.directml/1.15.2/'
             'microsoft.ai.directml.1.15.2.nupkg',
             '9f07482559087088a4dba4ae76eeeee1fad3f7077a92ccfbdb439c6bc2964c09')
-LINUX = 'https://github.com/microsoft/onnxruntime/releases/download/v1.20.1/onnxruntime-linux-x64-1.20.1.tgz'
+# la release de GitHub v1.20.1 ya no tiene los binarios (404): NuGet oficial
+LINUX = 'https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/1.20.1/microsoft.ml.onnxruntime.1.20.1.nupkg'
 
 
 def package_dir():
@@ -150,10 +151,9 @@ def main(platform):
         patch_dll_loader(pkg)
         patch_bundle_directml(pkg)
     elif platform == 'linux':
-        t = tarfile.open(fileobj=io.BytesIO(get(LINUX)))
-        m = next(m for m in t.getmembers() if m.name.endswith('lib/libonnxruntime.so.1.20.1'))
+        z = zipfile.ZipFile(io.BytesIO(get(LINUX)))
         dst = os.path.join(pkg, 'linux', 'libonnxruntime.so.1.15.1')  # nombre que carga el paquete
-        with t.extractfile(m) as src, open(dst, 'wb') as out:
+        with z.open('runtimes/linux-x64/native/libonnxruntime.so') as src, open(dst, 'wb') as out:
             shutil.copyfileobj(src, out)
         print('  ->', dst, os.path.getsize(dst))
     elif platform == 'ios':

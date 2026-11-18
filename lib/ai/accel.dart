@@ -391,15 +391,16 @@ const gpuPacks = <GpuPack>[
     id: 'cuda',
     name: 'NVIDIA CUDA',
     engine: AiEngine.cuda,
-    summary: 'ONNX Runtime 1.20.1 para CUDA 12 (Microsoft). Si no tienes CUDA 12 y cuDNN 9 instalados, '
+    summary: 'ONNX Runtime 1.20.1 para CUDA 12 (paquete oficial de Microsoft). Si no tienes CUDA 12 y cuDNN 9 instalados, '
         'se descargan también sus librerías oficiales de NVIDIA (cuBLAS, cuFFT, cuDNN). Necesita un '
         'controlador NVIDIA reciente (525 o superior).',
     files: [
+      // NuGet oficial de Microsoft (la release de GitHub v1.20.1 ya no tiene los zip: 404)
       PackFile(
-        'onnxruntime-win-x64-gpu-1.20.1.zip',
-        'https://github.com/microsoft/onnxruntime/releases/download/v1.20.1/onnxruntime-win-x64-gpu-1.20.1.zip',
-        337932991,
-        '3e9658d4aa7c21b3f5cbb5a7ce0356184f3c183c317b52f9cfff23a3f079634e',
+        'microsoft.ml.onnxruntime.gpu.windows.1.20.1.nupkg',
+        'https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime.gpu.windows/1.20.1/microsoft.ml.onnxruntime.gpu.windows.1.20.1.nupkg',
+        245964862,
+        '00aecf15af66520f3dc60cb3dca2dd79a512b91206c712cf8adeff8b81dff3b3',
       ),
     ],
     vendorDlls: ['cudart64_12.dll', 'cublas64_12.dll', 'cublasLt64_12.dll', 'cufft64_11.dll', 'cudnn64_9.dll'],
