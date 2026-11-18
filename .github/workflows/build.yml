@@ -136,6 +136,8 @@ jobs:
           ls -R /tmp/herrero-out
           # sin gráfica NVIDIA: diagnóstico sin errores y vuelta a CPU
           $B/herrero-tui --gpu --motor cpu
+          # TUI interactiva en un terminal de verdad (pty, TERM=linux)
+          python3 test/tui/pty_smoke.py $B/herrero-tui
       - name: Empaquetar
         run: |
           cp scripts/instalar-ubuntu.sh build/linux/x64/release/bundle/
