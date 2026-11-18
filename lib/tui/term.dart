@@ -262,6 +262,7 @@ class Terminal {
   StreamSubscription<List<int>>? _in;
   final List<StreamSubscription<ProcessSignal>> _sigs = [];
   void Function()? onResize;
+  void Function()? onInterrupt;
   bool _active = false;
 
   Stream<Key> get keys => _keys.stream;
@@ -304,9 +305,14 @@ class Terminal {
     try {
       _sigs.add(ProcessSignal.sigwinch.watch().listen((_) => onResize?.call()));
     } catch (_) {}
+    // Ctrl+C llega como señal (la terminal sigue generando SIGINT): se sale ordenadamente
     for (final s in [ProcessSignal.sigint, ProcessSignal.sigterm]) {
       try {
         _sigs.add(s.watch().listen((_) {
+          if (onInterrupt != null) {
+            onInterrupt!();
+            return;
+          }
           stop();
           exit(130);
         }));

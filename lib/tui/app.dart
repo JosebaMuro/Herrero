@@ -135,6 +135,7 @@ class TuiApp {
   Future<void> run() async {
     term.start();
     term.onResize = redraw;
+    term.onInterrupt = quit;
     packs.addListener(redraw);
     _keys = term.keys.listen(_onKey);
     _ticker = Timer.periodic(const Duration(milliseconds: 150), (_) {
