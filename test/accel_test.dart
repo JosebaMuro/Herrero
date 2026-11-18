@@ -40,7 +40,9 @@ void main() {
     // ignore: avoid_print
     print('Proveedores de ONNX Runtime: $providers');
     if (Platform.isWindows) {
-      expect(providers, contains('DmlExecutionProvider'), reason: 'la app debe llevar ONNX Runtime con DirectML');
+      // por defecto, el de la app (DirectML); con un paquete, su proveedor (CUDA / OpenVINO)
+      final want = Platform.environment['HERRERO_ORT_EXPECT'] ?? 'DmlExecutionProvider';
+      expect(providers, contains(want), reason: 'el ONNX Runtime cargado debe traer $want');
     }
     final engine = AiEngine.values.firstWhere((e) => e.name == (Platform.environment['HERRERO_ORT_ENGINE'] ?? 'auto'));
     for (final e in {engine, AiEngine.cpu}) {

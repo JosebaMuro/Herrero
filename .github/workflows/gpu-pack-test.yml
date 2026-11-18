@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches: [claude/project-thread-7cfq84]
-    paths: [lib/ai/accel.dart, lib/ai/model_manager.dart, test/gpu_pack_test.dart, .github/workflows/gpu-pack-test.yml]
+    paths: [test/accel_test.dart, lib/ai/accel.dart, lib/ai/model_manager.dart, test/gpu_pack_test.dart, .github/workflows/gpu-pack-test.yml]
 
 jobs:
   pack:
@@ -12,7 +12,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        pack: [cuda, openvino]
+        include:
+          - { pack: cuda, provider: CUDAExecutionProvider }
+          - { pack: openvino, provider: OpenVINOExecutionProvider }
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
@@ -27,3 +29,11 @@ jobs:
         run: |
           $env:HERRERO_PACK_TEST = '${{ matrix.pack }}'
           flutter test test/gpu_pack_test.dart
+      - name: Cargar el ONNX Runtime del paquete y ejecutar (sin GPU vuelve a CPU)
+        shell: pwsh
+        run: |
+          $env:HERRERO_ORT_DIR = "$env:LOCALAPPDATA\Herrero\gpu\${{ matrix.pack }}"
+          $env:HERRERO_ORT_TEST = '1'
+          $env:HERRERO_ORT_ENGINE = '${{ matrix.pack }}'
+          $env:HERRERO_ORT_EXPECT = '${{ matrix.provider }}'
+          flutter test test/accel_test.dart
