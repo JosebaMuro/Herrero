@@ -7,7 +7,7 @@ import 'dart:typed_data';
 
 import 'package:onnxruntime/onnxruntime.dart';
 
-import 'accel.dart';
+import 'ort_core.dart';
 import 'bpe_tokenizer.dart';
 import 'ort_util.dart';
 
@@ -225,7 +225,10 @@ class LlmResult {
   final List<int> ids;
   final int promptTokens;
   final Duration time;
-  const LlmResult(this.text, this.ids, this.promptTokens, this.time);
+
+  /// Motor con el que se ejecutó (CPU, CUDA, DirectML…).
+  final String engineLabel;
+  const LlmResult(this.text, this.ids, this.promptTokens, this.time, [this.engineLabel = 'CPU']);
 }
 
 class LlmJob {
@@ -324,7 +327,8 @@ Future<LlmResult> runLlmSync(LlmRequest req, [void Function(String)? onPartial])
   };
   final ids = tok.encode(req.prompt);
   final ro = OrtRunOptions();
-  final s = ortOpen(_p(req.modelDir, '${req.prefix}_model_int8.onnx'), req.threads, req.engine);
+  final opened = ortOpenAccel(_p(req.modelDir, '${req.prefix}_model_int8.onnx'), req.threads, req.engine);
+  final s = opened.session;
   final outNames = s.outputNames;
   final logitsIdx = outNames.indexOf('logits');
   var past = <String, OrtValue>{};
@@ -386,7 +390,7 @@ Future<LlmResult> runLlmSync(LlmRequest req, [void Function(String)? onPartial])
       if (req.stopAtJsonEnd && _jsonClosed(text)) break;
       logits = step([best]);
     }
-    return LlmResult(text, outIds, ids.length, sw.elapsed);
+    return LlmResult(text, outIds, ids.length, sw.elapsed, opened.ep.label);
   } finally {
     for (final v in past.values) {
       v.release();

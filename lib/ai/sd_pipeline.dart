@@ -6,7 +6,7 @@ import 'dart:typed_data';
 
 import 'package:onnxruntime/onnxruntime.dart';
 
-import 'accel.dart';
+import 'ort_core.dart';
 import 'clip_tokenizer.dart';
 
 export 'accel.dart' show AiEngine, AiEngineLabel, enginesForPlatform;

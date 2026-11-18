@@ -1,4 +1,4 @@
-name: Compilar Herrero (APK + Windows)
+name: Compilar Herrero (APK + Windows + Linux)
 
 on:
   push:
@@ -24,6 +24,8 @@ jobs:
           channel: stable
           cache: true
       - run: flutter pub get
+      - name: Análisis (solo errores)
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
       - run: flutter test
 
   android:
@@ -104,6 +106,49 @@ jobs:
             Herrero-windows-setup.exe
             Herrero-windows-portable.zip
 
+  linux:
+    runs-on: ubuntu-22.04 # glibc 2.35: el binario vale para Ubuntu 22.04 LTS y posteriores
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dependencias de compilación (GTK)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - name: ONNX Runtime 1.20 y cargador con el paquete CUDA
+        run: python3 scripts/ort_runtime.py linux
+      - run: flutter build linux --release
+      - name: TUI de terminal (herrero-tui)
+        run: dart compile exe bin/herrero_tui.dart -o build/linux/x64/release/bundle/herrero-tui
+      - name: Comprobar la TUI y ONNX Runtime del paquete
+        run: |
+          B=build/linux/x64/release/bundle
+          ls -l $B $B/lib
+          test -f $B/lib/libonnxruntime.so.1.15.1 || { echo "::error::falta ONNX Runtime en el paquete"; exit 1; }
+          $B/herrero-tui --ayuda
+          $B/herrero-tui --calcular "nave a dos aguas de 30 x 15 m, 6 m al alero, en Vitoria" --sin-ia --exportar /tmp/herrero-out
+          ls -R /tmp/herrero-out
+          # sin gráfica NVIDIA: diagnóstico sin errores y vuelta a CPU
+          $B/herrero-tui --gpu --motor cpu
+      - name: Empaquetar
+        run: |
+          cp scripts/instalar-ubuntu.sh build/linux/x64/release/bundle/
+          tar -C build/linux/x64/release -czf Herrero-linux-x64.tar.gz --transform 's,^bundle,herrero,' bundle
+          cp scripts/instalar-ubuntu.sh instalar-herrero-ubuntu.sh
+          ls -l Herrero-linux-x64.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Herrero-linux
+          path: |
+            Herrero-linux-x64.tar.gz
+            instalar-herrero-ubuntu.sh
+
   ios:
     runs-on: macos-latest
     needs: test
@@ -138,8 +183,9 @@ jobs:
     # iOS no bloquea la publicación de Android y Windows si falla
     if: >-
       always() && needs.android.result == 'success' && needs.windows.result == 'success' &&
+      needs.linux.result == 'success' &&
       (startsWith(github.ref, 'refs/tags/v') || contains(github.event.head_commit.message, '[release]'))
-    needs: [android, windows, ios]
+    needs: [android, windows, linux, ios]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
