@@ -1,6 +1,6 @@
 # Historial de versiones
 
-## 4.0.1
+## 4.0.1 (2026-11-18)
 
 - **Barandillas como se piden**: «doble pasamanos» (también «dos pasamanos», «pasamanos a dos
   alturas») añade un segundo pasamanos a 0,70 m sobre soportes por la cara interior (CTE DB-SUA 1
