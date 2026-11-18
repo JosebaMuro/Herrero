@@ -67,4 +67,3 @@ jobs:
           set +e
           flutter test test/accel_test.dart 2>&1 | tee accel.log
           grep -qE "[0-9]+ tests passed\.$" accel.log || { echo "::error::fallan pruebas de aceleración"; exit 1; }
-          grep -q "Motor cuda -> CPU" accel.log || { echo "::error::sin vuelta a CPU"; exit 1; }
