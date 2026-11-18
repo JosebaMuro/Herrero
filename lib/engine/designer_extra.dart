@@ -85,21 +85,40 @@ class _Rail {
   int posts = 0;
   int balusters = 0;
   double meters = 0;
+  bool secondRail = false;
   late SteelProfile post;
 }
 
+/// Barandilla de tubo redondo: inoxidable, aluminio o pedida expresamente.
+bool _tubularRailing(StructureSpec s, String t) =>
+    s.grade.kind == MaterialKind.stainless || s.grade.kind == MaterialKind.aluminium || RegExp(r'tubo redondo|tubular|redond|inox').hasMatch(t);
+
+/// «doble pasamanos», «dos pasamanos», «pasamanos a dos alturas»…
+bool _doubleHandrail(String t) =>
+    RegExp(r'(?:doble|dos|2) pasamanos|pasamanos (?:doble|a dos alturas|a doble altura)|segundo pasamanos').hasMatch(t);
+
 _Rail _railing(List<Member> members, List<Check> checks, List<(Vec3, Vec3)> runs, double hr, double fy,
-    {double lineLoad = 0.8, double spacing = 1.5, bool bars = true, SteelProfile? baluster, double barStep = 0.11}) {
+    {double lineLoad = 0.8,
+    double spacing = 1.5,
+    bool bars = true,
+    SteelProfile? baluster,
+    double barStep = 0.11,
+    bool tubular = false,
+    bool doubleRail = false}) {
   final r = _Rail();
-  r.post = _choose(shsTable.where((p) => p.b >= 40).toList(), (p) {
+  // Tubular (inox, «tubo», «redondo»): montantes y pasamanos de tubo redondo
+  // y barrotes de redondo macizo, como se fabrican las barandillas de inox.
+  final postCands = tubular ? chsTable.where((p) => p.h >= 42 && p.h <= 61).toList() : shsTable.where((p) => p.b >= 40).toList();
+  r.post = _choose(postCands, (p) {
     final med = 1.5 * lineLoad * spacing * hr;
     return [
       Check('Montante ${p.name}', 'Empuje horizontal ${_f(lineLoad)} kN/m (DB-SE-AE 3.2)', med / _mRd(p, fy),
           'MEd = ${_f(med, 2)} kN·m, h = ${_f(hr, 2)} m, separación ${_f(spacing, 2)} m'),
     ];
   }, checks);
-  final rail = shsTable.firstWhere((p) => p.b >= 40 && p.tw >= 2);
-  final bal = baluster ?? shsTable.first;
+  final rail = tubular ? chsTable.firstWhere((p) => p.h >= 42) : shsTable.firstWhere((p) => p.b >= 40 && p.tw >= 2);
+  final bal = baluster ?? (tubular ? roundTable.firstWhere((p) => p.h >= 14) : shsTable.first);
+  final rail2 = chsTable.firstWhere((p) => p.h >= 42);
   for (final (a, b) in runs) {
     final d = b - a;
     final horiz = math.sqrt(d.x * d.x + d.y * d.y);
@@ -112,6 +131,20 @@ _Rail _railing(List<Member> members, List<Check> checks, List<(Vec3, Vec3)> runs
     }
     members.add(Member(role: MemberRole.handrail, profile: rail, a: a + Vec3(0, 0, hr), b: b + Vec3(0, 0, hr)));
     members.add(Member(role: MemberRole.rail, profile: rail, a: a + Vec3(0, 0, 0.1), b: b + Vec3(0, 0, 0.1)));
+    if (doubleRail) {
+      // Segundo pasamanos (CTE DB-SUA 1 §4.2.4: 65–75 cm) por la cara interior,
+      // sobre soportes soldados a cada montante, separado ≥ 4 cm del relleno.
+      final nrm = Vec3(-d.y, d.x, 0) * (1 / horiz);
+      final off = nrm * (r.post.b / 2000 + 0.05 + rail2.h / 2000);
+      const z2 = 0.70;
+      members.add(Member(role: MemberRole.handrail, profile: rail2, a: a + off + Vec3(0, 0, z2), b: b + off + Vec3(0, 0, z2)));
+      for (var k = 0; k <= np; k++) {
+        final p = a + d * (k / np);
+        members.add(Member(role: MemberRole.bracket, profile: roundTable.firstWhere((q) => q.h >= 14),
+            a: p + nrm * (r.post.b / 2000) + Vec3(0, 0, z2 - 0.05), b: p + off + Vec3(0, 0, z2 - rail2.h / 2000)));
+      }
+      r.secondRail = true;
+    }
     r.meters += d.length;
     if (bars) {
       final nbal = (horiz / barStep).floor();
@@ -353,7 +386,8 @@ Design _designEscalera(StructureSpec s, String prompt) {
   }
 
   final hr = hTot > 6 ? 1.1 : 0.9;
-  final rail = _railing(members, checks, runs, hr, fy, lineLoad: q >= 4 ? 1.6 : 0.8, spacing: 1.2);
+  final rail = _railing(members, checks, runs, hr, fy, lineLoad: q >= 4 ? 1.6 : 0.8, spacing: 1.2,
+      tubular: _tubularRailing(s, normalize(prompt)), doubleRail: _doubleHandrail(normalize(prompt)));
 
   final nTreads = (per - 1) * flights;
   final nl = lines.length;
@@ -499,7 +533,7 @@ Design _designPasarela(StructureSpec s, String prompt) {
   final industrial = s.variant != 'peatonal pública';
   final hr = (industrial || hgt > 6) ? 1.1 : 0.9;
   final rail = _railing(members, checks, [(Vec3(0, 0, zt), Vec3(lx, 0, zt)), (Vec3(0, w, zt), Vec3(lx, w, zt))], hr, fy,
-      lineLoad: q >= 5 ? 1.6 : 0.8);
+      lineLoad: q >= 5 ? 1.6 : 0.8, tubular: _tubularRailing(s, t), doubleRail: _doubleHandrail(t));
   final nCols = frameX.length * 2;
   final pa = _basePlate(column, rBeam, 0, fy, checks, 'PA1');
   final plates = <PlatePiece>[
@@ -574,16 +608,20 @@ Design _designBarandilla(StructureSpec s, String prompt) {
   final members = <Member>[];
   final surfaces = <Surface>[];
   // Separación de montantes: la mayor (≤ 1,5 m) con montante de hasta SHS 60x4
+  final tubular = _tubularRailing(s, t);
+  final double2 = _doubleHandrail(t);
+  final maxPost = tubular ? chsTable.firstWhere((p) => p.h >= 60) : shsTable.firstWhere((p) => p.name == 'SHS 60x4');
   var spacing = form == 'vidrio' ? 1.2 : 1.5;
   while (spacing > 0.8) {
     final med = 1.5 * ql * spacing * hr;
-    if (med / _mRd(shsTable.firstWhere((p) => p.name == 'SHS 60x4'), fy) <= _limit) break;
+    if (med / _mRd(maxPost, fy) <= _limit) break;
     spacing -= 0.1;
   }
   final lamas = form == 'lamas';
   final rail = _railing(members, checks, [(const Vec3(0, 0, 0), Vec3(lx, 0, 0))], hr, fy,
       lineLoad: ql, spacing: spacing, bars: form == 'barrotes' || lamas,
-      baluster: lamas ? _flatNamed('Pletina 40x8') : null, barStep: lamas ? 0.10 : 0.11);
+      baluster: lamas ? _flatNamed('Pletina 40x8') : null, barStep: lamas ? 0.10 : 0.11,
+      tubular: tubular, doubleRail: double2);
   final post = rail.post;
   final postXs = [for (final m in members.where((m) => m.role == MemberRole.post)) m.a.x]..sort();
   // Relleno entre montantes
@@ -636,7 +674,9 @@ Design _designBarandilla(StructureSpec s, String prompt) {
       fillText = 'lamas verticales de pletina 40x8 con hueco ≤ 10 cm';
       break;
     default:
-      fillText = 'barrotes verticales con hueco libre ≤ 10 cm';
+      fillText = tubular
+          ? 'barrotes verticales de redondo macizo con hueco libre ≤ 10 cm'
+          : 'barrotes verticales con hueco libre ≤ 10 cm';
   }
   if (toe) {
     members.add(Member(role: MemberRole.rail, profile: _toePlate, a: const Vec3(0, 0, 0.06), b: Vec3(lx, 0, 0.06), webDir: const Vec3(0, 0, 1)));
@@ -671,8 +711,9 @@ Design _designBarandilla(StructureSpec s, String prompt) {
   ];
   final welds = <WeldSpec>[
     WeldSpec(joint: 'Montante – placa PA1', type: 'En ángulo perimetral', throat: weldThroat(post.tMin, pa.t, g),
-        lengthPerJoint: 4 * post.b, count: rail.posts),
+        lengthPerJoint: post.family == ProfileFamily.chs ? (math.pi * post.h).roundToDouble() : 4 * post.b, count: rail.posts),
     _railWeld(rail),
+    if (double2) WeldSpec(joint: 'Soportes del segundo pasamanos', type: 'En ángulo perimetral', throat: 3, lengthPerJoint: 50, count: rail.posts * 2),
     if (toe) WeldSpec(joint: 'Rodapié – montantes', type: 'En ángulo', throat: 3, lengthPerJoint: 2 * 100, count: rail.posts),
   ];
   final hyp = [
@@ -680,6 +721,8 @@ Design _designBarandilla(StructureSpec s, String prompt) {
     'Barandilla de ${_f(lx, 2)} m y ${_f(hr, 2)} m de altura (CTE DB-SUA 1 §3.2: 0,90 m si la caída ≤ 6 m; 1,10 m si es mayor).',
     'Empuje horizontal ${_f(ql, 1)} kN/m en el pasamanos (${s.use}, DB-SE-AE 3.2.1). Montantes cada ${_f(spacing, 2)} m.',
     'Relleno: $fillText.',
+    if (tubular) 'Montantes, pasamanos y larguero de tubo redondo ${post.name} (barandilla tubular${s.grade.kind == MaterialKind.stainless ? ' de inox' : ''}).',
+    if (double2) 'Doble pasamanos: el de coronación a ${_f(hr, 2)} m y otro a 0,70 m sobre soportes por la cara interior (CTE DB-SUA 1 §4.2.4: 90–110 cm y 65–75 cm).',
     if (form == 'barrotes' || lamas) 'Sin elementos escalables entre 30 y 50 cm de altura.',
     if (form == 'vidrio') 'Vidrio no calculado en detalle: seguir UNE-EN 12600 / CTE DB-SUA 2 con perfil de pinza homologado.',
     if (toe) 'Rodapié de pletina 100x5 a ras de suelo (EN ISO 14122-3 en zonas industriales; evita la caída de objetos).',
@@ -689,6 +732,7 @@ Design _designBarandilla(StructureSpec s, String prompt) {
     'Replanteo de montantes cada ${_f(spacing, 2)} m.',
     'Fabricación por tramos de ≤ 3 m en taller (montantes, pasamanos, larguero${form == 'barrotes' || lamas ? ' y barrotes' : ''}${toe ? ', rodapié' : ''}).',
     'Taladro, limpieza y anclaje químico de placas; aplomado.',
+    if (double2) 'Soldar los soportes del segundo pasamanos a 0,70 m y montar el pasamanos con remates curvos en los extremos.',
     if (form == 'vidrio') 'Colocación de pinzas y vidrios con calzos de neopreno; sellado.',
     if (form == 'cables') 'Pasar y tensar los cables desde los montantes de extremo; repaso de tensión a las 48 h.',
     if (form == 'chapa perforada') 'Atornillado de los paños de chapa perforada.',

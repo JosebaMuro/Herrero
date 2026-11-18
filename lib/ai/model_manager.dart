@@ -754,6 +754,7 @@ class ModelManager extends ChangeNotifier {
       size: size,
       steps: fidelitySteps[fidelity].$1,
       strength: fidelitySteps[fidelity].$2,
+      timesteps: fidelityTimesteps[fidelity],
       initRgba: initRgba,
       seed: seed,
       threads: device?.recommendedThreads ?? 4,
@@ -795,6 +796,11 @@ class _Cancelled implements Exception {}
 
 /// (pasos del planificador, fuerza img2img) → pasos UNet efectivos 1, 1 y 2.
 const fidelitySteps = <(int, double)>[(4, 0.25), (2, 0.5), (3, 0.67)];
+
+/// Paso de partida de cada nivel. «Equilibrada» empieza en t = 374 y no en 499:
+/// con 499 las piezas finas (barrotes, pasamanos, celosías) se deformaban y una
+/// barandilla podía acabar pareciendo un puente. Un solo paso UNet, igual de rápido.
+const fidelityTimesteps = <List<int>>[[249], [374], [666, 332]];
 const fidelityLabels = ['Fiel al render', 'Equilibrada', 'Más realista'];
 const fidelityHelp = [
   'Respeta la geometría y los colores del render; solo añade texturas y luz.',
