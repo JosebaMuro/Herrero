@@ -17,6 +17,7 @@ import '../ai/ort_core.dart';
 import '../engine/designer.dart';
 import '../engine/model.dart';
 import '../engine/understanding.dart';
+import '../system/boot_mode.dart';
 import 'support.dart';
 import 'term.dart';
 
@@ -116,6 +117,11 @@ class TuiApp {
   String? benchError;
   String? flash;
 
+  // reinicio con escritorio
+  bool _confirmReboot = false;
+  bool _rebooting = false;
+  BootMode? bootMode;
+
   int _spin = 0;
   bool _dirty = false;
   Timer? _ticker;
@@ -164,6 +170,7 @@ class TuiApp {
     await packs.load(); // en Linux despierta la gráfica NVIDIA
     packs.syncRuntime(engine);
     _loadOrt();
+    bootMode = await currentBootMode();
     redraw();
   }
 
@@ -185,8 +192,19 @@ class TuiApp {
 
   void _onKey(Key k) {
     flash = null;
+    if (_confirmReboot) {
+      _confirmReboot = false;
+      if (k.isChar('s') || k.isChar('S') || k.k == K.enter) _rebootDesktop();
+      redraw();
+      return;
+    }
     if (k.isCtrl('c') || k.isCtrl('q')) {
       quit();
+      return;
+    }
+    if (k.isCtrl('r') && bootModeSupported) {
+      _askReboot();
+      redraw();
       return;
     }
     if (k.isCtrl('g') || k.k == K.f2) {
@@ -324,6 +342,8 @@ class TuiApp {
             _installCuda();
           case 'b':
             _benchmark();
+          case 'r':
+            if (bootModeSupported) _askReboot();
           case 'q':
             screen = _back;
         }
@@ -471,6 +491,29 @@ class TuiApp {
     }));
   }
 
+  void _askReboot() {
+    if (_rebooting) return;
+    if (!desktopInstalled) {
+      flash = 'No hay escritorio instalado (sudo apt install ubuntu-desktop-minimal).';
+      return;
+    }
+    _job?.cancel();
+    _confirmReboot = true;
+  }
+
+  void _rebootDesktop() {
+    _rebooting = true;
+    flash = 'Reiniciando con el escritorio${g('…', '...')}';
+    redraw();
+    unawaited(rebootInto(BootMode.desktop).then((err) {
+      if (err != null) {
+        _rebooting = false;
+        flash = err;
+      }
+      redraw();
+    }));
+  }
+
   void _benchmark() {
     if (benchBusy) return;
     if (!ai.reasonReady()) {
@@ -554,7 +597,7 @@ class TuiApp {
       ('Petición', screen == Screen.prompt),
       ('Lo que he entendido', screen == Screen.ficha),
       ('Resultado', screen == Screen.result),
-      ('IA y GPU', screen == Screen.gpu),
+      ('IA, GPU y sistema', screen == Screen.gpu),
     ];
     final cl = Line();
     for (final (t, on) in crumbs) {
@@ -590,8 +633,13 @@ class TuiApp {
       lines.add(i < body.length ? body[i] : Line());
     }
     lines.add(Line.of(term.hLine * w, St.dim));
-    final foot = flash ?? _hints();
-    lines.add(Line.of(fit(' $foot', w), flash != null ? St.boldYellow : St.bar));
+    if (_confirmReboot) {
+      lines.add(Line.of(fit(' ¿Reiniciar con el escritorio (X11)? Arrancará así a partir de ahora (desde el escritorio '
+          'se vuelve al modo terminal). s = sí · otra tecla = no', w), St.selected));
+    } else {
+      final foot = flash ?? _hints();
+      lines.add(Line.of(fit(' $foot', w), flash != null ? St.boldYellow : St.bar));
+    }
     term.draw(lines, cursor: cursor);
   }
 
@@ -601,7 +649,7 @@ class TuiApp {
       Screen.prompt => ['Enter calcular', 'Tab ejemplo', '$ud historial', 'Ctrl+G IA y GPU', 'F1 ayuda', 'Ctrl+C salir'],
       Screen.ficha => ['Enter calcular', 's saltar IA', 'Esc nueva petición', 'g IA y GPU', '? ayuda'],
       Screen.result => ['$lr o 1-6 pestañas', '$ud RePág AvPág', 'e exportar', 'n nueva', 'Esc ficha', 'g GPU'],
-      Screen.gpu => ['$lr motor', 'm modelos', 'p paquete CUDA', 'b prueba de velocidad', '$ud desplazar', 'Esc volver'],
+      Screen.gpu => ['$lr motor', 'm modelos', 'p paquete CUDA', 'b prueba', if (bootModeSupported) 'r reiniciar con escritorio', 'Esc volver'],
       Screen.help => ['Esc volver'],
     }.join(sep);
   }
@@ -1006,6 +1054,16 @@ class TuiApp {
       out.add(Line.of('   ${num1(bench.first.tps / bench.last.tps, 1)}× más rápido que la CPU', St.boldCyan));
     }
     if (benchError != null) out.add(Line.of('   $benchError', St.red));
+    if (bootModeSupported) {
+      out.add(Line());
+      out.add(Line.of(' Sistema', St.bold));
+      out.add(Line.of('   Arranque: ${bootMode == null ? 'desconocido' : bootMode!.label}'));
+      out.add(Line()
+        ..add('   «r» (o Ctrl+R) ', St.boldYellow)
+        ..add(desktopInstalled
+            ? 'reinicia con el escritorio (X11). Desde la app de escritorio se vuelve al modo terminal.'
+            : 'no disponible: no hay escritorio instalado.'));
+    }
     return out;
   }
 
@@ -1020,6 +1078,7 @@ class TuiApp {
       'Teclas',
       '  Ctrl+G / F2   IA y GPU: motor (CUDA o CPU), modelos, paquete CUDA, prueba',
       '  F1 / ?        esta ayuda',
+      '  Ctrl+R        reiniciar con el escritorio (X11)',
       '  Ctrl+C        salir',
       '  En el resultado: ${g('←→', '<->')} o 1-6 pestañas, ${g('↑↓', 'arriba/abajo')}, RePág, AvPág; «e» exporta a $exportDir',
       '  (despiece.csv, planos.dxf y memoria.md).',

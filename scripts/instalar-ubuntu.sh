@@ -13,6 +13,7 @@
 #   sudo ./instalar-ubuntu.sh --desde /media/usb/herrero-offline
 #                                                  instalación sin conexión
 #   sudo ./instalar-ubuntu.sh --deshacer           vuelve al escritorio y quita el autologin
+#   sudo herrero-modo escritorio|tui --reiniciar   cambia de modo (lo usan la TUI y la app)
 #
 # Opciones:
 #   --usuario NOMBRE     usuario que abre Herrero en tty1 (por defecto, quien usa sudo)
@@ -290,6 +291,41 @@ install_user_parts() {
   fi
 }
 
+# Cambio de modo de arranque sin contraseña para el usuario de Herrero: lo usan la TUI
+# (Ctrl+R: reiniciar con escritorio) y la app de escritorio (reiniciar en modo terminal).
+install_mode_helper() {
+  paso "Cambio de modo de arranque (escritorio / terminal)"
+  cat > /usr/local/sbin/herrero-modo <<'MODO'
+#!/bin/sh
+# herrero-modo escritorio|tui [--reiniciar]
+# Deja el arranque con escritorio (graphical.target) o en modo terminal con Herrero
+# (multi-user.target) y, con --reiniciar, reinicia. Instalado por instalar-ubuntu.sh.
+set -e
+case "$1" in
+  escritorio|x11) t=graphical.target ;;
+  tui|terminal) t=multi-user.target ;;
+  *) echo "uso: herrero-modo escritorio|tui [--reiniciar]" >&2; exit 2 ;;
+esac
+if [ "$t" = graphical.target ] && ! systemctl cat display-manager.service >/dev/null 2>&1; then
+  echo "No hay escritorio instalado (sudo apt install ubuntu-desktop-minimal)" >&2
+  exit 3
+fi
+systemctl set-default "$t" >/dev/null
+if [ "${2:-}" = "--reiniciar" ]; then systemctl reboot; fi
+exit 0
+MODO
+  chmod 0755 /usr/local/sbin/herrero-modo
+  local rule; rule="$(mktemp)"
+  echo "$TARGET_USER ALL=(root) NOPASSWD: /usr/local/sbin/herrero-modo" > "$rule"
+  if visudo -cf "$rule" >/dev/null; then
+    install -m 0440 "$rule" /etc/sudoers.d/herrero-modo
+    ok "herrero-modo: $TARGET_USER puede cambiar de modo y reiniciar sin contraseña"
+  else
+    aviso "no se pudo crear la regla de sudo; el cambio de modo pedirá contraseña"
+  fi
+  rm -f "$rule"
+}
+
 text_mode_and_autologin() {
   [[ $TEXT_MODE == 1 ]] || return 0
   local home; home="$(user_home)"
@@ -366,6 +402,7 @@ apt_install "${FIRMWARE_PACKAGES[@]}" || aviso "no se pudo actualizar el firmwar
 install_nvidia
 install_herrero
 install_user_parts
+install_mode_helper
 text_mode_and_autologin
 
 paso "Instalación terminada"
@@ -374,7 +411,9 @@ if [[ $WITH_NVIDIA == 1 ]]; then
 fi
 if [[ $TEXT_MODE == 1 ]]; then
   echo "    Al reiniciar, el equipo arranca sin escritorio y abre Herrero en la pantalla."
-  echo "    Otras consolas: Ctrl+Alt+F2…F6. Para volver al escritorio:  sudo $PREFIX/instalar-ubuntu.sh --deshacer --usuario $TARGET_USER"
+  echo "    En Herrero, Ctrl+R reinicia con el escritorio; desde el escritorio, el botón de terminal de"
+  echo "    la app (o  sudo herrero-modo tui --reiniciar) vuelve aquí. Otras consolas: Ctrl+Alt+F2…F6."
+  echo "    Para quitar el modo terminal del todo:  sudo $PREFIX/instalar-ubuntu.sh --deshacer --usuario $TARGET_USER"
   read -r -t 30 -p "    ¿Reiniciar ahora? [s/N] " r || r=""
   [[ "${r,,}" == s* ]] && systemctl reboot
 fi

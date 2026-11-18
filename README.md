@@ -36,6 +36,8 @@ sudo /opt/herrero/instalar-ubuntu.sh --deshacer
 El instalador pone el controlador NVIDIA *headless* (módulos firmados de Ubuntu, válidos con
 Secure Boot), carga `nvidia`/`nvidia_uvm` al arrancar, activa `nvidia-persistenced`, deja el
 sistema en `multi-user.target` (sin X11) y abre Herrero en tty1 con inicio de sesión automático.
+Para alternar: **Ctrl+R** en la TUI reinicia con el escritorio, y el botón de terminal de la app de
+escritorio reinicia en modo TUI (`sudo herrero-modo escritorio|tui --reiniciar` a mano).
 
 ### TUI sin pantalla
 

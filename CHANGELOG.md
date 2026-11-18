@@ -25,6 +25,10 @@
   arranque sin X11 e inicio de sesión automático en tty1 que abre la TUI. Con `--preparar` deja en
   una carpeta o USB todo lo necesario (`.deb` del controlador y del firmware, paquete CUDA,
   modelos) para instalar **sin conexión** con `--desde`.
+- **Cambiar de modo y reiniciar**: en la TUI, Ctrl+R (o «r» en «IA, GPU y sistema») reinicia con el
+  escritorio (X11); en la app de escritorio de Linux, el botón de terminal reinicia en modo TUI.
+  El instalador deja `herrero-modo` y una regla de sudo para hacerlo sin contraseña (si falta, la
+  app la pide con pkexec y la TUI muestra el comando).
 
 ## 4.0.1 (2026-11-18)
 
