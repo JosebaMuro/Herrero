@@ -31,6 +31,41 @@ void main() {
       expect(dml, [OrtEp.directml]);
       expect(cuda, [OrtEp.cuda]);
     }
+    if (Platform.isLinux) expect(cuda, [OrtEp.cuda]);
+  });
+
+  test('en Linux, motores Automático / CUDA / CPU y CUDA solo si el runtime lo trae', () {
+    if (!Platform.isLinux) return;
+    expect(enginesForPlatform(), [AiEngine.auto, AiEngine.cuda, AiEngine.cpu]);
+    expect(accelChain(AiEngine.cuda, quantized: true, available: const ['CPUExecutionProvider']), isEmpty);
+    expect(accelChain(AiEngine.cuda, quantized: true, available: const ['CUDAExecutionProvider', 'CPUExecutionProvider']),
+        [OrtEp.cuda]);
+  });
+
+  test('opciones CUDA para gráficas de poca memoria (RTX 4050 de 6 GB)', () {
+    final o = cudaProviderOptions();
+    expect(o['arena_extend_strategy'], 'kSameAsRequested');
+    expect(o['cudnn_conv_algo_search'], 'HEURISTIC');
+    expect(o['cudnn_conv_use_max_workspace'], '0');
+  });
+
+  test('despertar la GPU no falla sin gráfica NVIDIA', () async {
+    final w = await wakeNvidiaGpu();
+    // ignore: avoid_print
+    print('GPU: ${w.state} · ${w.message}');
+    if (!Platform.isLinux) expect(w.state, GpuWakeState.notNvidia);
+    expect(identical(wakeNvidiaGpu(), wakeNvidiaGpu()), isTrue, reason: 'una sola vez por proceso');
+  });
+
+  test('paquete CUDA de Linux: ficheros con tamaño y SHA-256', () {
+    if (!Platform.isLinux) return;
+    final p = gpuPacks.firstWhere((p) => p.id == 'cuda');
+    for (final f in [...p.files, ...p.vendorFiles]) {
+      expect(f.size, greaterThan(0));
+      expect(f.sha256, matches(RegExp(r'^[0-9a-f]{64}$')));
+      expect(f.url, startsWith('https://'));
+    }
+    expect(p.vendorDlls, containsAll(['libcudnn.so.9', 'libcurand.so.10', 'libnvrtc.so.12']));
   });
 
   final run = Platform.environment['HERRERO_ORT_TEST'] == '1';
@@ -39,7 +74,7 @@ void main() {
     final providers = ortProviders();
     // ignore: avoid_print
     print('Proveedores de ONNX Runtime: $providers');
-    if (Platform.isWindows) {
+    if (Platform.isWindows || Platform.environment['HERRERO_ORT_EXPECT'] != null) {
       // por defecto, el de la app (DirectML); con un paquete, su proveedor (CUDA / OpenVINO)
       final want = Platform.environment['HERRERO_ORT_EXPECT'] ?? 'DmlExecutionProvider';
       expect(providers, contains(want), reason: 'el ONNX Runtime cargado debe traer $want');

@@ -1,5 +1,35 @@
 # Historial de versiones
 
+## 4.1.0
+
+- **Linux** (x86-64, Ubuntu 22.04 LTS o posterior): app de escritorio y **TUI de terminal**
+  (`herrero-tui`) en `Herrero-linux-x64.tar.gz`.
+- **TUI de terminal**: petición en lenguaje natural, ficha «Lo que he entendido» con el origen de
+  cada dato, resultado por pestañas (resumen, despiece, comprobaciones con barras de η, uniones,
+  montaje, normativa) y exportación a CSV, DXF y memoria en Markdown. Pantalla «IA y GPU»
+  (Ctrl+G): motor, paquete CUDA, descarga de modelos y prueba de velocidad CPU frente a GPU.
+  También sin pantalla: `herrero-tui --calcular "…"`, `--gpu`, `--instalar-cuda`.
+- **NVIDIA CUDA en Linux** (p. ej. RTX 4050 Laptop de 6 GB): paquete descargable con ONNX
+  Runtime 1.20.1 GPU y las librerías de NVIDIA (cudart, cuBLAS, cuFFT, cuRAND, NVRTC, cuDNN 9),
+  que se precargan al arrancar porque LD_LIBRARY_PATH no puede cambiarse con el proceso en marcha.
+  Funciona sin escritorio (modo texto).
+- **La gráfica NVIDIA se despierta al arrancar** (Linux): si faltan `nvidia_uvm` o
+  `/dev/nvidia-uvm` (sin escritorio nadie los crea) se crean con `nvidia-modprobe`, y `cuInit`
+  saca la gráfica del reposo antes de la primera petición. Si no se puede, se avisa con los
+  comandos exactos para arreglarlo y la IA sigue en CPU.
+- CUDA afinado para gráficas de poca memoria: reserva que crece solo lo pedido, cuDNN por
+  heurística y sin espacio de trabajo máximo (`HERRERO_CUDA_MEM_MB` limita cada sesión).
+- DirectML (Windows) elige la gráfica de **alto rendimiento** en portátiles con dos gráficas
+  (antes podía usar la integrada).
+- `scripts/instalar-ubuntu.sh`: instala Herrero en Ubuntu LTS con el controlador NVIDIA headless,
+  arranque sin X11 e inicio de sesión automático en tty1 que abre la TUI. Con `--preparar` deja en
+  una carpeta o USB todo lo necesario (`.deb` del controlador y del firmware, paquete CUDA,
+  modelos) para instalar **sin conexión** con `--desde`.
+- **Cambiar de modo y reiniciar**: en la TUI, Ctrl+R (o «r» en «IA, GPU y sistema») reinicia con el
+  escritorio (X11); en la app de escritorio de Linux, el botón de terminal reinicia en modo TUI.
+  El instalador deja `herrero-modo` y una regla de sudo para hacerlo sin contraseña (si falta, la
+  app la pide con pkexec y la TUI muestra el comando).
+
 ## 4.0.1 (2026-11-18)
 
 - **Barandillas como se piden**: «doble pasamanos» (también «dos pasamanos», «pasamanos a dos

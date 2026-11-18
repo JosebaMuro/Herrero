@@ -4,7 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:herrero/ai/accel.dart';
 import 'package:herrero/ai/model_manager.dart';
 
-/// Descarga e instala de verdad un paquete de aceleración (solo Windows, CI manual):
+/// Descarga e instala de verdad un paquete de aceleración (Windows y Linux, CI manual):
 /// HERRERO_PACK_TEST=cuda|openvino.
 void main() {
   final id = Platform.environment['HERRERO_PACK_TEST'];
@@ -35,5 +35,5 @@ void main() {
       }
     }
     expect(st.state, DlState.installed, reason: st.error);
-  }, skip: id == null || !Platform.isWindows, timeout: const Timeout(Duration(minutes: 40)));
+  }, skip: id == null || !(Platform.isWindows || Platform.isLinux), timeout: const Timeout(Duration(minutes: 40)));
 }

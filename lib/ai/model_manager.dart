@@ -15,7 +15,11 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'accel.dart';
+import 'download.dart' as dl;
+import 'download.dart' show DlState, ModelStatus;
 import 'sd_pipeline.dart';
+
+export 'download.dart' show DlState, ModelStatus;
 
 const modelsRelease = 'https://github.com/JosebaMuro/Herrero/releases/download/models-sdturbo-v1';
 const ocrRelease = 'https://github.com/JosebaMuro/Herrero/releases/download/models-ocr-v1';
@@ -317,7 +321,7 @@ class DeviceProfile {
     } catch (_) {}
     final mobile = Platform.isAndroid || Platform.isIOS;
     return DeviceProfile(
-      Platform.isAndroid ? 'Android' : (Platform.isWindows ? 'Windows' : (Platform.isIOS ? 'iOS' : Platform.operatingSystem)),
+      Platform.isAndroid ? 'Android' : (Platform.isWindows ? 'Windows' : (Platform.isLinux ? 'Linux' : (Platform.isIOS ? 'iOS' : Platform.operatingSystem))),
       mobile,
       ram,
       cores,
@@ -387,17 +391,6 @@ class DeviceProfile {
   bool fits(ModelVariant m) => !(m.pcOnly && isMobile) && !(ramGb > 0 && ramGb < m.minRamGb);
 }
 
-enum DlState { notInstalled, downloading, verifying, installed, error }
-
-class ModelStatus {
-  DlState state;
-  double progress; // 0..1
-  int bytesDone;
-  int bytesTotal;
-  String? error;
-  ModelStatus(this.state, {this.progress = 0, this.bytesDone = 0, this.bytesTotal = 0, this.error});
-}
-
 /// Gestor de descargas de modelos (reanudable, con verificación SHA-256).
 class ModelManager extends ChangeNotifier {
   ModelManager._();
@@ -451,7 +444,7 @@ class ModelManager extends ChangeNotifier {
       if (!enginesForPlatform().contains(engine)) engine = AiEngine.auto;
       fidelity = (sp.getInt('ai.fidelity') ?? 1).clamp(0, 2);
     } catch (_) {}
-    if (Platform.isWindows) {
+    if (Platform.isWindows || Platform.isLinux) {
       await GpuPacks.instance.load();
       GpuPacks.instance.syncRuntime(engine);
     }
@@ -623,39 +616,8 @@ class ModelManager extends ChangeNotifier {
   /// Descarga un fichero suelto con reintentos, reanudación y SHA-256 (paquetes de
   /// aceleración). [onBytes] recibe los bytes acumulados.
   Future<void> fetchVerified(String url, File target, int size, String sha,
-      void Function(int got) onBytes, bool Function() cancelled) async {
-    final part = File('${target.path}.part');
-    final client = http.Client();
-    try {
-      for (var attempt = 1;; attempt++) {
-        var have = part.existsSync() ? part.lengthSync() : 0;
-        if (have > size) {
-          part.deleteSync();
-          have = 0;
-        }
-        if (have >= size) break;
-        try {
-          await _fetchInto(client, url, part, have, size, onBytes, cancelled);
-          break;
-        } on _Cancelled {
-          throw Exception('Cancelado');
-        } catch (e) {
-          final network = e is SocketException || e is http.ClientException || e is TimeoutException;
-          if (!network || attempt >= _maxAttempts) rethrow;
-          await Future<void>.delayed(Duration(seconds: 2 * attempt));
-          if (cancelled()) throw Exception('Cancelado');
-        }
-      }
-    } finally {
-      client.close();
-    }
-    if (!await _verify(part.path, sha)) {
-      part.deleteSync();
-      throw Exception('El fichero ${target.uri.pathSegments.last} está dañado (SHA-256 incorrecto). Vuelve a intentarlo.');
-    }
-    if (target.existsSync()) target.deleteSync();
-    part.renameSync(target.path);
-  }
+          void Function(int got) onBytes, bool Function() cancelled) =>
+      dl.downloadVerified(url, target, size, sha, onBytes, cancelled);
 
   /// Descarga [url] en [part] desde el byte [have] (reanudación con Range).
   Future<void> _fetchInto(http.Client client, String url, File part, int have, int expSize,

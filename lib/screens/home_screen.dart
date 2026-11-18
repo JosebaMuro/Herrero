@@ -1,7 +1,10 @@
+import 'dart:io';
+
 import 'package:material_ui/material_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../engine/autocomplete.dart';
+import '../system/boot_mode.dart';
 import 'catalog_screen.dart';
 import 'models_screen.dart';
 import 'plan_import_screen.dart';
@@ -103,6 +106,29 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  /// Linux: arranque en modo terminal (sin X11) con la TUI de Herrero, y reinicio.
+  Future<void> _rebootToTui() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        icon: const Icon(Icons.terminal),
+        title: const Text('Reiniciar en modo terminal'),
+        content: const Text('El equipo se reiniciará sin escritorio (sin X11) y abrirá Herrero en la terminal, '
+            'con toda la gráfica para la IA. Arrancará así a partir de ahora; desde la terminal se vuelve al '
+            'escritorio con Ctrl+R.\n\nGuarda antes lo que tengas abierto.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancelar')),
+          FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Reiniciar')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final err = await rebootInto(BootMode.tui, graphical: true);
+    if (err != null && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err), duration: const Duration(seconds: 10)));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
@@ -129,6 +155,12 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: const Icon(Icons.download_for_offline_outlined),
             onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const ModelsScreen())),
           ),
+          if (bootModeSupported && File('/usr/local/bin/herrero-tui').existsSync())
+            IconButton(
+              tooltip: 'Reiniciar en modo terminal (TUI)',
+              icon: const Icon(Icons.terminal),
+              onPressed: _rebootToTui,
+            ),
           IconButton(
             tooltip: 'Acerca de',
             icon: const Icon(Icons.info_outline),

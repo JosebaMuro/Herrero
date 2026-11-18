@@ -1,9 +1,15 @@
+import 'dart:io';
+
 import 'package:material_ui/material_ui.dart';
 
+import 'ai/accel.dart';
 import 'screens/home_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  // Linux: despertar la gráfica NVIDIA desde el arranque (también sin escritorio), para
+  // que CUDA la encuentre lista en la primera petición a la IA.
+  if (Platform.isLinux) GpuPacks.instance.load();
   runApp(const HerreroApp());
 }
 
