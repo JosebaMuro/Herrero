@@ -130,7 +130,8 @@ class _AiPhotoScreenState extends State<AiPhotoScreen> {
       setState(() {
         _photoPng = png;
         _info = '${res.size} px · ${(res.elapsed.inMilliseconds / 1000).toStringAsFixed(0)} s · ${res.engineUsed}'
-            ' · ${mgr.active?.name ?? ''}';
+            ' · ${mgr.active?.name ?? ''}'
+            '${res.breakdown.isEmpty ? '' : '\n${res.breakdown}'}';
       });
     } on SdCancelled {
       // cancelado por el usuario

@@ -57,7 +57,10 @@ class SdResult {
   final int size;
   final Duration elapsed;
   final String engineUsed;
-  SdResult(this.rgba, this.size, this.elapsed, this.engineUsed);
+
+  /// Tiempo y motor de cada paso, p. ej. «Generar 31,2 s CPU · Revelar 0,6 s NNAPI».
+  final String breakdown;
+  SdResult(this.rgba, this.size, this.elapsed, this.engineUsed, [this.breakdown = '']);
 }
 
 class SdCancelled implements Exception {
@@ -250,6 +253,15 @@ Future<SdResult> _run(SdRequest req, void Function(double, String) progress) asy
   final ro = OrtRunOptions();
 
   // 1) Texto -> embeddings
+  final steps = <String>[];
+  var lap = sw.elapsedMilliseconds;
+  void mark(String what, [OrtEp? ep]) {
+    final now = sw.elapsedMilliseconds;
+    final secs = ((now - lap) / 1000).toStringAsFixed(1).replaceAll('.', ',');
+    steps.add('$what $secs s${ep == null ? '' : ' ${ep.label}'}');
+    lap = now;
+  }
+
   progress(0.03, 'Interpretando la descripción…');
   final tok = await ClipTokenizer.fromDir(req.modelDir);
   final ids = tok.encode(req.prompt);
@@ -258,6 +270,7 @@ Future<SdResult> _run(SdRequest req, void Function(double, String) progress) asy
   final emb = te.run(ro, {'input_ids': idsT});
   idsT.release();
   used.add(te.ep.label);
+  mark('Texto', te.ep);
   te.release();
 
   final size = req.size;
@@ -287,6 +300,7 @@ Future<SdResult> _run(SdRequest req, void Function(double, String) progress) asy
     final e = enc.run(ro, {'sample': t});
     t.release();
     used.add(enc.ep.label);
+    mark('Render', enc.ep);
     enc.release();
     final s0 = sig[ts.first];
     for (var i = 0; i < n; i++) {
@@ -303,6 +317,7 @@ Future<SdResult> _run(SdRequest req, void Function(double, String) progress) asy
   progress(0.22, 'Cargando el modelo de imagen…');
   final unet = _Model(_p(req.modelDir, req.unetFile), req, quantized: true);
   unet.session; // carga explícita (lo más lento la primera vez)
+  mark('Cargar generador');
   final embT = OrtValueTensor.createTensorWithDataList(emb, [1, 77, emb.length ~/ 77]);
   for (var i = 0; i < ts.length; i++) {
     progress(0.35 + 0.4 * i / ts.length, 'Generando (paso ${i + 1} de ${ts.length})…');
@@ -328,6 +343,7 @@ Future<SdResult> _run(SdRequest req, void Function(double, String) progress) asy
   }
   embT.release();
   used.add(unet.ep.label);
+  mark('Generar', unet.ep);
   unet.release();
 
   // 4) Decodificar
@@ -341,6 +357,7 @@ Future<SdResult> _run(SdRequest req, void Function(double, String) progress) asy
   final out = dec.run(ro, {'latent_sample': zT});
   zT.release();
   used.add(dec.ep.label);
+  mark('Revelar', dec.ep);
   dec.release();
   ro.release();
   OrtEnv.instance.release();
@@ -357,5 +374,5 @@ Future<SdResult> _run(SdRequest req, void Function(double, String) progress) asy
   progress(1, 'Listo');
   final accel = used.where((u) => u != 'CPU').toList();
   final engine = accel.isEmpty ? 'CPU (${req.threads} hilos)' : '${accel.join(' + ')} + CPU (${req.threads} hilos)';
-  return SdResult(rgba, size, sw.elapsed, engine);
+  return SdResult(rgba, size, sw.elapsed, engine, steps.join(' · '));
 }

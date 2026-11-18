@@ -1,5 +1,12 @@
 # Historial de versiones
 
+## 3.5.1
+
+- **Foto IA**: debajo de la foto se muestra cuánto tarda cada paso (texto, render, cargar el
+  generador, generar, revelar) y con qué motor (CPU, NNAPI, DirectML…), para saber dónde se va el
+  tiempo en cada móvil o PC. En Android, NNAPI no puede ejecutar el generador int8: esa parte va en
+  CPU elijas lo que elijas.
+
 ## 3.5.0
 
 - **Aceleración por GPU y NPU** para toda la IA local (foto realista, croquis, razonamiento, OCR y
