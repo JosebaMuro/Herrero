@@ -53,7 +53,7 @@ void main() {
     await tester.tap(find.text('Formación'));
     await tester.pumpAndSettle();
     expect(find.text('TodoFP'), findsOneWidget);
-    await tester.enterText(find.byType(TextField), 'TIG');
+    await tester.enterText(find.byType(TextField), 'fmec0219');
     await tester.pumpAndSettle();
     expect(find.text('FMEC0219_2'), findsOneWidget);
     expect(find.text('TodoFP'), findsNothing);
