@@ -48,7 +48,8 @@ cat > "$W/onnxruntime/pubspec.yaml" <<EOF
 name: onnxruntime
 version: $(ver onnxruntime)
 environment:
-  sdk: '>=3.0.0 <4.0.0'
+  # la misma versión del lenguaje que el original (sus clases Opaque no llevan «base»)
+  sdk: '>=2.17.0 <4.0.0'
 dependencies:
   ffi: $(ver ffi)
 EOF
