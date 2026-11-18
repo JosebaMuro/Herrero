@@ -4,6 +4,7 @@
 // Compilar:  dart compile exe bin/herrero_tui.dart -o herrero-tui
 // (junto a la app de Linux, en la carpeta del bundle, para que encuentre lib/).
 import 'dart:async';
+import 'dart:ffi' as ffi;
 import 'dart:io';
 
 import 'package:herrero/ai/comprehension_core.dart';
@@ -43,7 +44,27 @@ String? _opt(List<String> a, String name) {
   return a[i + 1];
 }
 
+/// Sale sin pasar por los destructores de las bibliotecas nativas: el proveedor CUDA de
+/// ONNX Runtime puede romperse al descargarse (p. ej. si la gráfica no arrancó), y eso
+/// mostraría «Violación de segmento» al salir de la TUI.
+Future<Never> _exitNow(int code) async {
+  await stdout.flush();
+  await stderr.flush();
+  if (Platform.isLinux || Platform.isMacOS) {
+    try {
+      ffi.DynamicLibrary.process()
+          .lookupFunction<ffi.Void Function(ffi.Int32), void Function(int)>('_exit')(code);
+    } catch (_) {}
+  }
+  exit(code);
+}
+
 Future<void> main(List<String> args) async {
+  await _main(args);
+  await _exitNow(exitCode);
+}
+
+Future<void> _main(List<String> args) async {
   if (args.contains('--ayuda') || args.contains('--help') || args.contains('-h')) {
     stdout.write(_help);
     return;
@@ -113,7 +134,6 @@ Future<void> main(List<String> args) async {
     stderr.writeln('Error: $e\n$st');
     exitCode = 1;
   }
-  exit(exitCode); // cierra isolates de la IA que sigan vivos
 }
 
 Future<int> _gpu(AiEngine engine) async {

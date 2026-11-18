@@ -45,7 +45,7 @@ void main() {
       f.remember();
       f.set('');
       f.handle(const Key(K.up));
-      expect(f.text, 'ave de ');
+      expect(f.text, 'ave de'); // el historial guarda el texto sin espacios sobrantes
     });
   });
 
