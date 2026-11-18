@@ -1,7 +1,7 @@
 // Herrero en la terminal (TUI). Funciona sin escritorio, en la consola de texto de Linux,
 // y usa la gráfica NVIDIA con CUDA para la IA local si está el paquete CUDA.
 //
-// Compilar:  dart compile exe bin/herrero_tui.dart -o herrero-tui
+// Compilar:  scripts/build_tui.sh build/linux/x64/release/bundle/herrero-tui
 // (junto a la app de Linux, en la carpeta del bundle, para que encuentre lib/).
 import 'dart:async';
 import 'dart:ffi' as ffi;

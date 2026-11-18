@@ -125,7 +125,7 @@ jobs:
         run: python3 scripts/ort_runtime.py linux
       - run: flutter build linux --release
       - name: TUI de terminal (herrero-tui)
-        run: dart compile exe bin/herrero_tui.dart -o build/linux/x64/release/bundle/herrero-tui
+        run: scripts/build_tui.sh build/linux/x64/release/bundle/herrero-tui
       - name: Comprobar la TUI y ONNX Runtime del paquete
         run: |
           B=build/linux/x64/release/bundle
