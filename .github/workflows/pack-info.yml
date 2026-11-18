@@ -1,0 +1,17 @@
+name: Datos del paquete CUDA Linux (temporal)
+on:
+  push:
+    branches: [claude/cuda-linux-tui]
+    paths: [.github/workflows/pack-info.yml]
+jobs:
+  info:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          u=https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime.gpu.linux/1.20.1/microsoft.ml.onnxruntime.gpu.linux.1.20.1.nupkg
+          curl -sSfL -o p.nupkg "$u"
+          echo "SIZE $(stat -c %s p.nupkg)"
+          echo "SHA $(sha256sum p.nupkg | cut -d' ' -f1)"
+          unzip -l p.nupkg | grep -i "\.so"
+          unzip -o -q p.nupkg 'runtimes/linux-x64/native/*' -d x
+          for f in x/runtimes/linux-x64/native/*.so*; do echo "== $f"; readelf -d "$f" | grep -E "NEEDED|SONAME|RUNPATH|RPATH"; done
