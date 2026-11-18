@@ -1,5 +1,23 @@
 # Historial de versiones
 
+## 4.0.0
+
+- **Formación reglada** de calderería, soldadura y estructuras metálicas: nueva pestaña «Formación»
+  en «Qué entiende Herrero», con buscador y enlaces a las fuentes oficiales (TodoFP, INCUAL, SEPE,
+  BOE, Procomún, RUCT, ESCO, CESOL/IIW, Fundación del Metal):
+  - FP: Grado Básico en Fabricación y Montaje, Técnico en Soldadura y Calderería (módulos 0006,
+    0007, 0091–0095), Técnico Superior en Construcciones Metálicas, ciclos afines y cursos de
+    especialización.
+  - Certificados profesionales vigentes de soldadura (FMEC0119_2 MIG/MAG, FMEC0219_2 TIG,
+    FMEC0319_2 electrodo, RD 569/2023) con la equivalencia de los derogados FMEC0110 y FMEC0210,
+    y los de tubería, producción y diseño de calderería y estructuras (FMEC0108/0109/0208/0209/0309).
+  - Cualificaciones del INCUAL (FME035_2, FME350_2, FME351_2, FME354_3, FME355_3, FME357_3,
+    FME684_2–686_2), grados A–E de la Ley 3/2022 y acreditación de la experiencia.
+  - Homologación del soldador (UNE-EN ISO 9606, 14732, 14731, 9712, ASME IX / AWS D1.1),
+    diplomas IIW/EWF y formación de prevención del convenio del metal (TPC/TPM).
+  - Los enlaces se abren en el navegador; mantenerlos pulsados los copia. Resúmenes propios,
+    sin copiar textos oficiales.
+
 ## 3.5.0
 
 - **Aceleración por GPU y NPU** para toda la IA local (foto realista, croquis, razonamiento, OCR y
