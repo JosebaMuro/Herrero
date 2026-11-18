@@ -178,7 +178,7 @@ jobs:
           systemctl get-default | grep -q multi-user.target
           test -x /usr/local/bin/suite && test -x /usr/local/sbin/herrero-modo
           sudo -n /usr/local/sbin/herrero-modo tui   # regla de sudo sin contraseña
-          grep -q "suite-tui" ~/.profile
+          cat ~/.profile ~/.bash_profile 2>/dev/null | grep -q "suite-tui"
           sudo scripts/instalar-ubuntu.sh --deshacer --usuario "$USER"
           systemctl get-default | grep -q graphical.target
       - name: Diagnóstico si falla
