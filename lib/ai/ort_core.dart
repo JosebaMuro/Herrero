@@ -552,7 +552,7 @@ Future<GpuWake> _doWake() async {
   if (!pci && !driver()) return const GpuWake(GpuWakeState.notNvidia, 'No hay gráfica NVIDIA.');
 
   if (!driver() || !nodes()) {
-    for (final args in const [
+    for (final args in const <List<String>>[
       ['-c=0', '-u'],
       ['-u'],
       [],
