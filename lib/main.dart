@@ -1,9 +1,11 @@
 import 'package:material_ui/material_ui.dart';
 
 import 'screens/home_screen.dart';
+import 'services/cut_prefs.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await loadCutSettings();
   runApp(const HerreroApp());
 }
 

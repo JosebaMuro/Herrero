@@ -13,6 +13,7 @@ import '../cad/collada.dart';
 import '../cad/dxf.dart';
 import '../cad/sheets.dart';
 import '../engine/bom.dart';
+import '../engine/cutting.dart';
 import '../engine/materials.dart';
 import '../engine/model.dart';
 import '../engine/normativa.dart';
@@ -252,18 +253,26 @@ Future<Uint8List> buildPdf(Design d,
       pw.Text(
           weldingHypothesis(d.spec.fab),
           style: const pw.TextStyle(fontSize: 7.5)),
-      h1('7. Pedido de material (barras comerciales)'),
-      table(['Perfil', 'Barra (m)', 'Nº barras', 'Metros', 'kg aprox.', 'Merma'], [
+      h1('7. Pedido de material y plan de corte'),
+      table(['Perfil', 'Pedido', 'Metros', 'kg aprox.', 'Merma', 'Retales útiles (mm)'], [
         for (final st in d.stock)
           [
             st.profile.name,
-            _n(st.barLength / 1000, 0),
-            '${st.bars}',
-            _n(st.bars * st.barLength / 1000, 0),
-            _n(st.bars * st.barLength / 1000 * st.profile.kgm, 0),
-            '${_n(st.wastePct, 1)} %'
+            st.orderText,
+            _n(st.purchasedMm / 1000, 1),
+            _n(st.purchasedKg, 0),
+            '${_n(st.wastePct, 1)} %',
+            st.remnants.isEmpty ? '-' : st.remnants.join(' / '),
           ]
       ]),
+      if (d.stock.isNotEmpty)
+        pw.Text(
+            'Sierra ${d.stock.first.settings.kerf} mm, despunte ${d.stock.first.settings.trim} mm por extremo, '
+            'retal útil desde ${d.stock.first.settings.minRemnant} mm. Plan de corte (barras iguales agrupadas):',
+            style: const pw.TextStyle(fontSize: 7.5)),
+      for (final st in d.stock)
+        for (final l in cutPlanLines(st))
+          pw.Text('${st.profile.name} · $l', style: const pw.TextStyle(fontSize: 7.5)),
       h1('8. Secuencia de montaje'),
       ...d.assembly.asMap().entries.map((e) => pw.Padding(
           padding: const pw.EdgeInsets.only(bottom: 2),

@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'cutting.dart';
 import 'normativa.dart';
 import 'profiles.dart';
 
@@ -389,18 +390,6 @@ class Piece {
   double get paintM2 => profile.paintAreaPerM * lengthMm / 1000 * qty;
 }
 
-/// Necesidad de barras comerciales por perfil.
-class StockPlan {
-  final SteelProfile profile;
-  final double barLength; // mm
-  final int bars;
-  final double usedMm;
-  final List<List<double>> layout;
-  StockPlan(this.profile, this.barLength, this.bars, this.usedMm, this.layout);
-  double get wastePct =>
-      bars == 0 ? 0 : 100 * (1 - usedMm / (bars * barLength));
-}
-
 /// Parámetros interpretados del prompt.
 class StructureSpec {
   StructureType type;
@@ -480,7 +469,8 @@ class Design {
   final List<Surface> surfaces;
 
   late final List<Piece> pieces;
-  late final List<StockPlan> stock;
+  /// Pedido de barras y plan de corte (se recalcula al cambiar los ajustes).
+  List<StockPlan> stock = const [];
 
   /// Normativa de referencia pertinente para esta petición.
   List<Norm> norms = const [];

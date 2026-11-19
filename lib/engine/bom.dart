@@ -1,9 +1,5 @@
+import 'cutting.dart';
 import 'model.dart';
-import 'profiles.dart';
-
-/// Longitud máxima de barra comercial (mm).
-const double maxBar = 12000;
-const double kerf = 3; // pérdida por corte de sierra (mm)
 
 /// Agrupa las barras en marcas de despiece y calcula el aprovechamiento de
 /// barras comerciales.
@@ -47,64 +43,7 @@ void buildBom(Design d) {
     ));
   }
   d.pieces = pieces;
-  d.stock = planStock(pieces);
-}
-
-/// Optimización de corte (First-Fit Decreasing) por perfil.
-List<StockPlan> planStock(List<Piece> pieces) {
-  final byProfile = <String, List<double>>{};
-  final profiles = <String, SteelProfile>{};
-  for (final p in pieces) {
-    profiles[p.profile.name] = p.profile;
-    for (var i = 0; i < p.qty; i++) {
-      var l = p.lengthMm;
-      // piezas mayores que la barra comercial: empalme
-      while (l > maxBar) {
-        byProfile.putIfAbsent(p.profile.name, () => []).add(maxBar);
-        l -= maxBar;
-      }
-      byProfile.putIfAbsent(p.profile.name, () => []).add(l);
-    }
-  }
-  final plans = <StockPlan>[];
-  for (final e in byProfile.entries) {
-    final prof = profiles[e.key]!;
-    final lens = [...e.value]..sort((a, b) => b.compareTo(a));
-    final longest = lens.first;
-    // Perfiles laminados (IPE/HEB) en barras de 12 m; tubos y angulares en 6 m
-    final used = lens.fold<double>(0, (s, l) => s + l);
-    StockPlan? best;
-    for (final bar in [6000.0, 12000.0]) {
-      if (longest > bar) continue;
-      final bins = _ffd(lens, bar);
-      final plan = StockPlan(prof, bar, bins.length, used, bins);
-      if (best == null || plan.wastePct < best.wastePct - 0.5) best = plan;
-    }
-    plans.add(best!);
-  }
-  plans.sort((a, b) => a.profile.name.compareTo(b.profile.name));
-  return plans;
-}
-
-List<List<double>> _ffd(List<double> lens, double bar) {
-  final bins = <List<double>>[];
-  final free = <double>[];
-  for (final l in lens) {
-    var placed = false;
-    for (var i = 0; i < bins.length; i++) {
-      if (free[i] >= l + kerf) {
-        bins[i].add(l);
-        free[i] -= l + kerf;
-        placed = true;
-        break;
-      }
-    }
-    if (!placed) {
-      bins.add([l]);
-      free.add(bar - l);
-    }
-  }
-  return bins;
+  d.stock = optimizeCuts(pieces);
 }
 
 /// Exporta el despiece a CSV (separador ;)
@@ -131,6 +70,19 @@ String bomCsv(Design d) {
   for (final w in d.welds) {
     sb.writeln(
         '${w.joint};${w.type};${w.throat.toStringAsFixed(0)};${w.lengthPerJoint.toStringAsFixed(0)};${w.count};${w.totalMeters.toStringAsFixed(1)};${w.consumableKg.toStringAsFixed(2)}');
+  }
+  sb.writeln();
+  sb.writeln('Pedido de barras;Barras;Metros;kg;Merma %;Retales (mm)');
+  for (final st in d.stock) {
+    sb.writeln(
+        '${st.profile.name};${st.orderText};${(st.purchasedMm / 1000).toStringAsFixed(1)};${st.purchasedKg.toStringAsFixed(1)};${st.wastePct.toStringAsFixed(1)};${st.remnants.join(' / ')}');
+  }
+  sb.writeln();
+  sb.writeln('Plan de corte;Barras y cortes (mm)');
+  for (final st in d.stock) {
+    for (final l in cutPlanLines(st)) {
+      sb.writeln('${st.profile.name};$l');
+    }
   }
   return sb.toString().replaceAll('.', ',').replaceAll('IPE,', 'IPE.');
 }

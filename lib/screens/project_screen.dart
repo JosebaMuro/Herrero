@@ -5,11 +5,13 @@ import 'package:flutter/rendering.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:printing/printing.dart';
 
+import '../engine/cutting.dart';
 import '../engine/designer.dart';
 import '../engine/materials.dart';
 import '../engine/model.dart';
 import '../engine/parser.dart';
 import '../engine/profiles.dart';
+import '../services/cut_prefs.dart';
 import '../services/export.dart';
 import 'package:flutter/gestures.dart';
 import '../views/iso_view.dart';
@@ -614,20 +616,290 @@ class _BomTab extends StatelessWidget {
             ]),
         ]),
       ),
-      section(
-        'Pedido de barras comerciales',
-        table(['Perfil', 'Barra', 'Nº barras', 'kg', 'Merma'], [
-          for (final st in d.stock)
-            DataRow(cells: [
-              DataCell(Text(st.profile.name)),
-              DataCell(Text('${_n(st.barLength / 1000, 0)} m')),
-              DataCell(Text('${st.bars}')),
-              DataCell(Text(_n(st.bars * st.barLength / 1000 * st.profile.kgm, 0))),
-              DataCell(Text('${_n(st.wastePct)} %')),
-            ]),
+      _CutOptimizer(d: d),
+    ]);
+  }
+}
+
+// ---------------------------------------------------------------------------
+
+/// Optimizador de corte: pedido de barras por perfil, plan de corte y retales.
+class _CutOptimizer extends StatefulWidget {
+  final Design d;
+  const _CutOptimizer({required this.d});
+  @override
+  State<_CutOptimizer> createState() => _CutOptimizerState();
+}
+
+class _CutOptimizerState extends State<_CutOptimizer> {
+  CutSettings get _s => CutSettings.current;
+
+  @override
+  void initState() {
+    super.initState();
+    // el diseño pudo calcularse con otros ajustes
+    if (widget.d.stock.isNotEmpty && !identical(widget.d.stock.first.settings, _s)) _recalc(_s);
+  }
+
+  void _recalc(CutSettings s) {
+    widget.d.stock = optimizeCuts(widget.d.pieces, s);
+  }
+
+  Future<void> _apply(CutSettings s) async {
+    await saveCutSettings(s);
+    if (!mounted) return;
+    setState(() => _recalc(s));
+  }
+
+  Future<void> _edit() async {
+    final res = await showModalBottomSheet<CutSettings>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => _CutSettingsSheet(initial: _s),
+    );
+    if (res != null) await _apply(res);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final stock = widget.d.stock;
+    final bought = stock.fold<double>(0, (a, st) => a + st.purchasedMm) / 1000;
+    final used = stock.fold<double>(0, (a, st) => a + st.usedMm) / 1000;
+    final kg = stock.fold<double>(0, (a, st) => a + st.purchasedKg);
+    final remnantM = stock.fold<double>(0, (a, st) => a + st.remnantMm) / 1000;
+    final waste = bought == 0 ? 0.0 : 100 * (1 - used / bought);
+    final s = _s;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Expanded(child: Text('Pedido de barras y plan de corte', style: Theme.of(context).textTheme.titleMedium)),
+            TextButton.icon(onPressed: _edit, icon: const Icon(Icons.tune, size: 18), label: const Text('Ajustes')),
+          ]),
+          Text(
+            'Sierra ${s.kerf} mm · despunte ${s.trim} mm · retal útil ≥ ${s.minRemnant} mm · barras: ${s.mode.label}${s.mixLengths ? ', mezclando longitudes' : ''}',
+            style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+          ),
+          const SizedBox(height: 8),
+          Wrap(spacing: 10, runSpacing: 10, children: [
+            _Kpi('Barras a pedir', '${stock.fold<int>(0, (a, st) => a + st.bars)}', Icons.view_week_outlined),
+            _Kpi('Metros comprados', '${_n(bought)} m', Icons.straighten),
+            _Kpi('Peso del pedido', '${_n(kg, 0)} kg', Icons.scale),
+            _Kpi('Merma total', '${_n(waste)} %', Icons.content_cut),
+            _Kpi('Retales útiles', '${_n(remnantM)} m', Icons.inventory_2_outlined),
+          ]),
+          const SizedBox(height: 8),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: DataTable(
+              headingRowHeight: 36,
+              dataRowMinHeight: 32,
+              dataRowMaxHeight: 44,
+              columnSpacing: 16,
+              columns: [
+                for (final c in const ['Perfil', 'Pedido', 'Metros', 'kg', 'Merma', 'Chatarra', 'Retales'])
+                  DataColumn(label: Text(c, style: const TextStyle(fontWeight: FontWeight.w700))),
+              ],
+              rows: [
+                for (final st in stock)
+                  DataRow(cells: [
+                    DataCell(Text(st.profile.name, style: const TextStyle(fontWeight: FontWeight.w600))),
+                    DataCell(Text(st.orderText)),
+                    DataCell(Text(_n(st.purchasedMm / 1000))),
+                    DataCell(Text(_n(st.purchasedKg, 0))),
+                    DataCell(Text('${_n(st.wastePct)} %')),
+                    DataCell(Text('${_n(st.scrapPct)} %')),
+                    DataCell(Text(st.remnants.isEmpty ? '—' : st.remnants.map((r) => '$r').join(' · '),
+                        style: const TextStyle(fontSize: 12))),
+                  ]),
+              ],
+            ),
+          ),
+          const SizedBox(height: 4),
+          for (final st in stock)
+            ExpansionTile(
+              tilePadding: EdgeInsets.zero,
+              title: Text('Plan de corte ${st.profile.name}', style: const TextStyle(fontWeight: FontWeight.w600)),
+              subtitle: Text(
+                '${st.orderText}${st.isOptimal ? ' · mínimo posible de barras' : ''}'
+                '${st.spliced.isEmpty ? '' : ' · empalme en ${st.spliced.join(', ')}'}',
+                style: const TextStyle(fontSize: 12),
+              ),
+              children: [
+                for (final p in st.patterns)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(
+                        '${p.repeat} × barra de ${_n(p.bar.length / 1000, p.bar.length % 1000 == 0 ? 0 : 1)} m'
+                        ' · sobra ${p.bar.remnantMm} mm${p.bar.remnantMm >= st.settings.minRemnant ? ' (retal)' : ''}',
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 3),
+                      SizedBox(
+                        height: 30,
+                        width: double.infinity,
+                        child: CustomPaint(painter: _BarPainter(p.bar, st.settings.minRemnant, cs)),
+                      ),
+                      Text(
+                        p.bar.cuts.map((c) => '${c.mark} ${c.length}${c.note.isEmpty ? '' : ' (${c.note})'}').join(' + '),
+                        style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
+                      ),
+                    ]),
+                  ),
+              ],
+            ),
+          if (stock.any((st) => st.spliced.isNotEmpty))
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(
+                'Las piezas más largas que la barra salen en tramos: empalme a tope con penetración completa, '
+                'fuera de la zona de máximo momento.',
+                style: TextStyle(fontSize: 12, color: cs.error),
+              ),
+            ),
         ]),
       ),
-    ]);
+    );
+  }
+}
+
+/// Dibuja una barra con sus cortes a escala, la merma de sierra y el retal.
+class _BarPainter extends CustomPainter {
+  final CutBar bar;
+  final int minRemnant;
+  final ColorScheme cs;
+  _BarPainter(this.bar, this.minRemnant, this.cs);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final k = size.width / bar.length;
+    final h = size.height;
+    final bg = Paint()..color = cs.surfaceContainerHighest;
+    canvas.drawRRect(RRect.fromRectAndRadius(Offset.zero & size, const Radius.circular(3)), bg);
+    final colors = [cs.primary, cs.tertiary, cs.secondary];
+    final marks = <String>[];
+    var x = bar.trim * k;
+    for (final c in bar.cuts) {
+      if (!marks.contains(c.mark)) marks.add(c.mark);
+      final w = c.length * k;
+      final col = colors[marks.indexOf(c.mark) % colors.length];
+      final r = Rect.fromLTWH(x, 0, w, h);
+      canvas.drawRect(r.deflate(0.5), Paint()..color = col);
+      final tp = TextPainter(
+        text: TextSpan(text: '${c.mark}\n${c.length}', style: TextStyle(color: cs.onPrimary, fontSize: 9, height: 1.1)),
+        textAlign: TextAlign.center,
+        textDirection: TextDirection.ltr,
+      )..layout(maxWidth: w);
+      if (tp.width <= w - 2) tp.paint(canvas, Offset(x + (w - tp.width) / 2, (h - tp.height) / 2));
+      x += w + bar.kerf * k;
+    }
+    final rem = bar.remnantMm;
+    if (rem > 0) {
+      final w = rem * k;
+      final r = Rect.fromLTWH(size.width - bar.trim * k - w, 0, w, h);
+      final reusable = rem >= minRemnant;
+      canvas.drawRect(r.deflate(0.5), Paint()..color = reusable ? cs.secondaryContainer : cs.errorContainer);
+      final tp = TextPainter(
+        text: TextSpan(
+            text: reusable ? 'retal $rem' : '$rem',
+            style: TextStyle(color: reusable ? cs.onSecondaryContainer : cs.onErrorContainer, fontSize: 9)),
+        textDirection: TextDirection.ltr,
+      )..layout(maxWidth: w);
+      if (tp.width <= w - 2) tp.paint(canvas, Offset(r.left + (w - tp.width) / 2, (h - tp.height) / 2));
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _BarPainter old) => old.bar != bar || old.cs != cs;
+}
+
+class _CutSettingsSheet extends StatefulWidget {
+  final CutSettings initial;
+  const _CutSettingsSheet({required this.initial});
+  @override
+  State<_CutSettingsSheet> createState() => _CutSettingsSheetState();
+}
+
+class _CutSettingsSheetState extends State<_CutSettingsSheet> {
+  late CutSettings s = widget.initial;
+  late final _kerf = TextEditingController(text: '${s.kerf}');
+  late final _trim = TextEditingController(text: '${s.trim}');
+  late final _rem = TextEditingController(text: '${s.minRemnant}');
+
+  @override
+  void dispose() {
+    _kerf.dispose();
+    _trim.dispose();
+    _rem.dispose();
+    super.dispose();
+  }
+
+  int _int(TextEditingController c, int def) => (int.tryParse(c.text.trim()) ?? def).clamp(0, 2000);
+
+  @override
+  Widget build(BuildContext context) {
+    Widget num(String label, TextEditingController c, String help) => Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: TextField(
+            controller: c,
+            keyboardType: TextInputType.number,
+            decoration: InputDecoration(labelText: label, suffixText: 'mm', helperText: help),
+          ),
+        );
+    return Padding(
+      padding: EdgeInsets.fromLTRB(16, 0, 16, 16 + MediaQuery.viewInsetsOf(context).bottom),
+      child: SingleChildScrollView(
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+          Text('Ajustes del optimizador de corte', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 12),
+          num('Ancho de corte de la sierra', _kerf, 'Sierra de cinta 2–3 mm; disco 3–4 mm'),
+          num('Despunte en cada extremo', _trim, 'Lo que se tira de las puntas de la barra'),
+          num('Retal mínimo aprovechable', _rem, 'Por debajo se considera chatarra'),
+          const Text('Longitud de barra comercial'),
+          const SizedBox(height: 6),
+          Wrap(spacing: 8, runSpacing: 4, children: [
+            for (final m in BarMode.values)
+              ChoiceChip(
+                label: Text(m.label),
+                selected: s.mode == m,
+                onSelected: (_) => setState(() => s = s.copyWith(mode: m)),
+              ),
+          ]),
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(
+              'Según perfil: IPE/HEB/UPN en 12 o 6 m; tubos en 6 o 12 m; angulares, pletinas y redondos en 6 m.',
+              style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
+            ),
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Mezclar longitudes'),
+            subtitle: const Text('Pedir una barra corta cuando con la larga sobraría media'),
+            value: s.mixLengths,
+            onChanged: (v) => setState(() => s = s.copyWith(mixLengths: v)),
+          ),
+          const SizedBox(height: 8),
+          OverflowBar(alignment: MainAxisAlignment.spaceBetween, overflowAlignment: OverflowBarAlignment.end, children: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, const CutSettings()),
+              child: const Text('Valores de fábrica'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(
+                context,
+                s.copyWith(kerf: _int(_kerf, 3), trim: _int(_trim, 0), minRemnant: _int(_rem, 500)),
+              ),
+              child: const Text('Recalcular'),
+            ),
+          ]),
+        ]),
+      ),
+    );
   }
 }
 

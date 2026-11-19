@@ -1,5 +1,18 @@
 # Historial de versiones
 
+## 4.1.0 (2026-11-19)
+
+- **Optimizador de corte de perfiles** en el pedido de materiales (pestaña «Despiece»): por cada
+  perfil dice cuántas barras comerciales pedir («3 × 12 m + 1 × 6 m»), el plan de corte de cada
+  barra dibujado a escala, con las barras iguales agrupadas, y los retales que sobran.
+- Busca para cada barra la combinación de piezas que más la aprovecha (no solo «la primera que
+  quepa») y la compara con el mínimo teórico; si se alcanza, lo indica.
+- Ajustes guardados: ancho de corte de la sierra (3 mm por defecto), despunte de cada extremo,
+  retal mínimo aprovechable (500 mm), longitud de barra (según perfil, solo 6 m o solo 12 m) y
+  mezclar longitudes para no comprar una barra larga para media pieza.
+- Las piezas más largas que la barra salen en tramos con aviso de empalme.
+- El PDF del proyecto y el CSV del despiece incluyen el pedido y el plan de corte.
+
 ## 4.0.1 (2026-11-18)
 
 - **Barandillas como se piden**: «doble pasamanos» (también «dos pasamanos», «pasamanos a dos
