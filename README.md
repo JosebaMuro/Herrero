@@ -4,7 +4,7 @@ App ligera para **Android, iPhone y Windows** que, a partir de una descripción 
 ("nave a dos aguas de 30 x 15 m, 6 m al alero, panel sándwich, en Vitoria"), predimensiona la
 estructura según **CTE DB-SE-A / Eurocódigo 3** y genera:
 
-- **Despiece** con marcas, perfiles, longitudes, cantidades, pesos y optimización de barras comerciales.
+- **Despiece** con marcas, perfiles, longitudes, cantidades y pesos, y **optimizador de corte**: barras comerciales a pedir (12 y 6 m), plan de corte por barra, retales y merma de sierra configurable.
 - **Chapas, tornillería y soldaduras** (garganta, longitud, proceso, consumible estimado).
 - **Memoria de cálculo** con hipótesis, cargas y comprobaciones (aprovechamiento η).
 - **Vista isométrica** y **secuencia de montaje**.
