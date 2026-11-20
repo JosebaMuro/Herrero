@@ -1,5 +1,24 @@
 # Historial de versiones
 
+## 4.2.0 (2026-11-20)
+
+- **Gestor de modelos de IA** renovado: tarjeta «Instalados» con lo que ocupa cada modelo y el
+  total, cuál está en uso, con qué motor se ejecuta, si se importó a mano y las descargas a medias
+  (con su tamaño, para reanudarlas o borrarlas). Usar o eliminar cada modelo desde ahí.
+- Con varios modelos de visión de croquis instalados (SmolVLM 256M y 500M) se elige cuál usar,
+  igual que en la foto IA.
+- **Motor de inferencia según el hardware, por tarea**: la app detecta el equipo (gráficas en
+  Windows; versión de Android y chip del móvil) y elige para cada tarea CPU, NNAPI, DirectML, CUDA
+  u OpenVINO, explicando por qué. Se puede fijar a mano para una tarea concreta (p. ej. solo CPU
+  para el razonamiento) sin tocar el resto. Avisa si una NVIDIA o Intel iría más rápido con su
+  paquete.
+- **Importar un modelo descargado** (icono de carpeta arriba, o «Importar» en cada modelo): elige
+  los ficheros bajados por tu cuenta y la app reconoce a qué modelo pertenecen (por nombre o por
+  las entradas del modelo), comprueba el formato (rechaza GGUF, safetensors, PyTorch o TFLite con
+  una explicación), la versión IR y el opset que admite ONNX Runtime 1.20, que no use pesos en un
+  fichero aparte, que el motor de la app lo abre y si es idéntico al oficial (SHA-256). Si es una
+  versión distinta pero compatible, pregunta antes de instalarla.
+
 ## 4.1.0 (2026-11-19)
 
 - **Optimizador de corte de perfiles** en el pedido de materiales (pestaña «Despiece»): por cada

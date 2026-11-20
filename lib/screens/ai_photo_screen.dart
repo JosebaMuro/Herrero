@@ -363,7 +363,7 @@ class _AiPhotoScreenState extends State<AiPhotoScreen> {
       const SizedBox(height: 12),
       if (_info != null) Text(_info!, style: t.bodySmall),
       Text(
-        'Modelo: ${m?.name ?? '—'} · ${mgr.size} px · ${mgr.engine.label}. '
+        'Modelo: ${m?.name ?? '—'} · ${mgr.size} px · ${mgr.decision(ModelTask.photo).runsOn}. '
         'La imagen se genera en este dispositivo a partir del render 3D; es ilustrativa y puede '
         'inventar detalles: las medidas y perfiles válidos son los de los planos.',
         style: t.bodySmall,

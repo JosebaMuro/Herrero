@@ -15,6 +15,8 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'accel.dart';
+import 'engine_plan.dart';
+import 'model_import.dart';
 import 'sd_pipeline.dart';
 
 const modelsRelease = 'https://github.com/JosebaMuro/Herrero/releases/download/models-sdturbo-v1';
@@ -413,12 +415,28 @@ class ModelManager extends ChangeNotifier {
   AiEngine engine = AiEngine.auto;
   int fidelity = 1; // 0 fiel al render, 1 equilibrada, 2 más realista
   DeviceProfile? device;
+  HardwareInfo? hardware;
+
+  /// Motor fijado a mano para cada tarea (si no está, la tarea sigue el motor general).
+  final Map<ModelTask, AiEngine> taskEngine = {};
+
+  /// Modelo de visión elegido (si hay varios instalados).
+  String? activeSketchId;
+
+  /// Ficheros importados a mano por carpeta: nombre -> {size, sha256, official, from, date}.
+  final Map<String, Map<String, dynamic>> imported = {};
+
+  /// Espacio que ocupa cada variante instalada y lo descargado a medias (bytes).
+  final Map<String, int> diskBytes = {};
+  final Map<String, int> partialBytes = {};
+  final Map<String, String> _dirs = {};
   bool _loaded = false;
 
   Future<Directory> dir([String subdir = 'sdturbo']) async {
     final base = await getApplicationSupportDirectory();
     final d = Directory('${base.path}${Platform.pathSeparator}models${Platform.pathSeparator}$subdir');
     if (!d.existsSync()) d.createSync(recursive: true);
+    _dirs[subdir] = d.path;
     if (Platform.isIOS && !_backupExcluded) {
       // en iPhone, los modelos (cientos de MB) fuera de la copia de iCloud
       try {
@@ -450,11 +468,19 @@ class ModelManager extends ChangeNotifier {
           : device!.recommendedEngine;
       if (!enginesForPlatform().contains(engine)) engine = AiEngine.auto;
       fidelity = (sp.getInt('ai.fidelity') ?? 1).clamp(0, 2);
+      activeSketchId = sp.getString('ai.active.sketch');
+      for (final t in ModelTask.values) {
+        final v = sp.getInt('ai.engine.${t.name}');
+        if (v != null && v >= 0 && v < AiEngine.values.length && taskEngineChoices().contains(AiEngine.values[v])) {
+          taskEngine[t] = AiEngine.values[v];
+        }
+      }
     } catch (_) {}
     if (Platform.isWindows) {
       await GpuPacks.instance.load();
       GpuPacks.instance.syncRuntime(engine);
     }
+    hardware = await HardwareInfo.detect(device: device);
     for (final (rel, sub) in _releases) {
       final d = await dir(sub);
       final mf = File('${d.path}${Platform.pathSeparator}manifest.json');
@@ -463,10 +489,17 @@ class ModelManager extends ChangeNotifier {
           manifests[rel] = json.decode(await mf.readAsString()) as Map<String, dynamic>;
         } catch (_) {}
       }
+      final imp = File('${d.path}${Platform.pathSeparator}imported.json');
+      if (imp.existsSync()) {
+        try {
+          imported[sub] = json.decode(await imp.readAsString()) as Map<String, dynamic>;
+        } catch (_) {}
+      }
     }
     for (final m in catalog) {
       status[m.id] = ModelStatus(await _isInstalled(m) ? DlState.installed : DlState.notInstalled);
     }
+    await refreshDisk();
     if (activeId == null || status[activeId]?.state != DlState.installed) {
       final inst = _photo.where((m) => status[m.id]!.state == DlState.installed).toList();
       activeId = inst.isEmpty ? null : inst.first.id;
@@ -483,6 +516,15 @@ class ModelManager extends ChangeNotifier {
       await sp.setInt('ai.size', size);
       await sp.setInt('ai.accel', engine.index);
       await sp.setInt('ai.fidelity', fidelity);
+      if (activeSketchId != null) await sp.setString('ai.active.sketch', activeSketchId!);
+      for (final t in ModelTask.values) {
+        final e = taskEngine[t];
+        if (e == null) {
+          await sp.remove('ai.engine.${t.name}');
+        } else {
+          await sp.setInt('ai.engine.${t.name}', e.index);
+        }
+      }
     } catch (_) {}
     GpuPacks.instance.syncRuntime(engine);
     notifyListeners();
@@ -494,9 +536,166 @@ class ModelManager extends ChangeNotifier {
       final file = File('${d.path}${Platform.pathSeparator}$f');
       if (!file.existsSync()) return false;
       final exp = _fileInfo(m, f)?['size'];
-      if (exp is int && file.lengthSync() != exp) return false;
+      final imp = imported[m.subdir]?[f];
+      final len = file.lengthSync();
+      if (imp is Map && imp['size'] == len) continue; // importado a mano y comprobado
+      if (exp is int && len != exp) return false;
     }
     return true;
+  }
+
+  /// Ruta local de un fichero de modelo (la carpeta ya debe estar creada).
+  String _path(String subdir, String f) => '${_dirs[subdir]}${Platform.pathSeparator}$f';
+
+  /// Recalcula lo que ocupa cada modelo en disco y lo descargado a medias.
+  Future<void> refreshDisk() async {
+    for (final m in catalog) {
+      await dir(m.subdir);
+      var full = 0;
+      var part = 0;
+      for (final f in m.files) {
+        final a = File(_path(m.subdir, f));
+        final p = File('${a.path}.part');
+        if (a.existsSync()) full += a.lengthSync();
+        if (p.existsSync()) part += p.lengthSync();
+      }
+      diskBytes[m.id] = status[m.id]?.state == DlState.installed ? full : 0;
+      partialBytes[m.id] = status[m.id]?.state == DlState.installed ? 0 : full + part;
+    }
+    notifyListeners();
+  }
+
+  /// Espacio total que ocupan los modelos (los ficheros compartidos cuentan una vez).
+  int get totalDiskBytes {
+    final seen = <String>{};
+    var t = 0;
+    for (final m in catalog) {
+      for (final f in m.files) {
+        if (!seen.add('${m.subdir}/$f')) continue;
+        final a = File(_path(m.subdir, f));
+        if (a.existsSync()) t += a.lengthSync();
+        final p = File('${a.path}.part');
+        if (p.existsSync()) t += p.lengthSync();
+      }
+    }
+    return t;
+  }
+
+  /// Ficheros de [m] importados a mano (y si son los oficiales).
+  Map<String, bool> importedFiles(ModelVariant m) => {
+        for (final f in m.files)
+          if (imported[m.subdir]?[f] is Map) f: (imported[m.subdir]![f] as Map)['official'] == true,
+      };
+
+  /// Ficheros que faltan para que [m] esté completo.
+  Future<List<String>> missingFiles(ModelVariant m) async {
+    await dir(m.subdir);
+    final out = <String>[];
+    for (final f in m.files) {
+      final file = File(_path(m.subdir, f));
+      if (!file.existsSync()) {
+        out.add(f);
+        continue;
+      }
+      final imp = imported[m.subdir]?[f];
+      final exp = _fileInfo(m, f)?['size'];
+      if (imp is Map && imp['size'] == file.lengthSync()) continue;
+      if (exp is int && file.lengthSync() != exp) out.add(f);
+    }
+    return out;
+  }
+
+  /// Datos oficiales (sha256, tamaño) de un fichero del catálogo, si se conoce el manifiesto.
+  (String?, int?) officialOf(ImportTarget t) {
+    final i = _fileInfo(t.variant, t.file);
+    return (i?['sha256'] as String?, i?['size'] as int?);
+  }
+
+  /// Instala un fichero ya comprobado con [checkImport].
+  /// [move]: el fichero está en la carpeta temporal de la app y se mueve en vez de copiarse.
+  Future<void> installImported(ImportTarget t, ImportCheck c, String originalName, {bool move = false}) async {
+    final d = await dir(t.variant.subdir);
+    final target = File('${d.path}${Platform.pathSeparator}${t.file}');
+    final part = File('${target.path}.part');
+    if (part.existsSync()) part.deleteSync();
+    var moved = false;
+    if (move) {
+      try {
+        File(c.path).renameSync(part.path);
+        moved = true;
+      } catch (_) {}
+    }
+    if (!moved) await File(c.path).copy(part.path);
+    if (part.lengthSync() != c.size) {
+      part.deleteSync();
+      throw Exception('La copia de ${t.file} quedó incompleta. Comprueba el espacio libre.');
+    }
+    if (target.existsSync()) target.deleteSync();
+    part.renameSync(target.path);
+    final (sha, _) = officialOf(t);
+    final map = imported[t.variant.subdir] ??= {};
+    map[t.file] = {
+      'size': c.size,
+      'sha256': c.sha256,
+      'official': sha != null && sha == c.sha256,
+      'from': originalName,
+      'date': DateTime.now().toIso8601String(),
+    };
+    await File('${d.path}${Platform.pathSeparator}imported.json').writeAsString(jsonEncode(map));
+    for (final m in catalog.where((m) => m.subdir == t.variant.subdir)) {
+      if (status[m.id]?.state == DlState.downloading) continue;
+      status[m.id] = ModelStatus(await _isInstalled(m) ? DlState.installed : DlState.notInstalled);
+    }
+    if (status[t.variant.id]?.state == DlState.installed) {
+      if (t.variant.task == ModelTask.photo) activeId ??= t.variant.id;
+    }
+    await savePrefs();
+    await refreshDisk();
+  }
+
+  /// Carpeta temporal para los ficheros elegidos que el sistema no da como ruta (Android).
+  Future<Directory> importStaging() async {
+    final d = await dir('_import');
+    return d;
+  }
+
+  Future<void> _forgetImported(String subdir, Iterable<String> files) async {
+    final map = imported[subdir];
+    if (map == null) return;
+    var changed = false;
+    for (final f in files) {
+      changed |= map.remove(f) != null;
+    }
+    if (!changed) return;
+    final d = await dir(subdir);
+    await File('${d.path}${Platform.pathSeparator}imported.json').writeAsString(jsonEncode(map));
+  }
+
+  // --- Motor por tarea ---
+
+  Set<String> get installedPacks =>
+      Platform.isWindows ? {for (final p in gpuPacks) if (GpuPacks.instance.installed(p.id)) p.id} : const {};
+
+  /// Qué motor usa [task] ahora y por qué.
+  EngineDecision decision(ModelTask task) => decideEngine(
+        task,
+        hardware ?? HardwareInfo(platform: device?.platform ?? Platform.operatingSystem),
+        global: engine,
+        override: taskEngine[task],
+        packs: installedPacks,
+      );
+
+  /// Motor que se pasa a la petición de [task].
+  AiEngine engineFor(ModelTask task) => decision(task).engine;
+
+  /// Fija (o quita, con null) el motor de una tarea.
+  Future<void> setTaskEngine(ModelTask task, AiEngine? e) async {
+    if (e == null) {
+      taskEngine.remove(task);
+    } else {
+      taskEngine[task] = e;
+    }
+    await savePrefs();
   }
 
   Map<String, dynamic>? _fileInfo(ModelVariant m, String f) =>
@@ -609,7 +808,9 @@ class ModelManager extends ChangeNotifier {
       }
       status[m.id] = ModelStatus(DlState.installed, progress: 1);
       if (m.task == ModelTask.photo) activeId ??= m.id;
+      await _forgetImported(m.subdir, m.files);
       await savePrefs();
+      await refreshDisk();
     } on _Cancelled {
       status[m.id] = ModelStatus(DlState.notInstalled);
     } catch (e) {
@@ -718,18 +919,41 @@ class ModelManager extends ChangeNotifier {
     for (final o in catalog) {
       if (o.id != m.id && o.subdir == m.subdir && status[o.id]?.state == DlState.installed) keep.addAll(o.files);
     }
+    final gone = <String>[];
     for (final f in m.files) {
       if (keep.contains(f)) continue;
+      gone.add(f);
       for (final p in [f, '$f.part']) {
         final file = File('${d.path}${Platform.pathSeparator}$p');
         if (file.existsSync()) file.deleteSync();
       }
     }
+    await _forgetImported(m.subdir, gone);
     status[m.id] = ModelStatus(DlState.notInstalled);
     if (activeId == m.id) {
       final inst = _photo.where((o) => status[o.id]!.state == DlState.installed).toList();
       activeId = inst.isEmpty ? null : inst.first.id;
     }
+    if (activeSketchId == m.id) activeSketchId = null;
+    await savePrefs();
+    await refreshDisk();
+  }
+
+  /// Hay varias variantes para la tarea de [m] (se elige cuál usar).
+  static bool hasChoice(ModelTask t) => catalog.where((m) => m.task == t).length > 1;
+
+  /// Variante en uso para [t] (la elegida o la única instalada), o null.
+  ModelVariant? activeFor(ModelTask t) {
+    if (t == ModelTask.photo) return ready ? active : null;
+    if (t == ModelTask.sketch) return vlmReady ? vlm : null;
+    final m = catalog.firstWhere((m) => m.task == t);
+    return status[m.id]?.state == DlState.installed ? m : null;
+  }
+
+  /// Usar [m] para su tarea.
+  Future<void> activate(ModelVariant m) async {
+    if (m.task == ModelTask.photo) activeId = m.id;
+    if (m.task == ModelTask.sketch) activeSketchId = m.id;
     await savePrefs();
   }
 
@@ -758,13 +982,10 @@ class ModelManager extends ChangeNotifier {
       initRgba: initRgba,
       seed: seed,
       threads: device?.recommendedThreads ?? 4,
-      engine: engine,
+      engine: engineFor(ModelTask.photo),
     );
   }
 
-  /// Motor para los modelos pequeños o de tamaño variable (embeddings, OCR): en
-  /// Automático van en CPU, donde arrancan antes que en la GPU y rinden igual.
-  AiEngine get lightEngine => engine == AiEngine.auto ? AiEngine.cpu : engine;
 
   bool get ready => active != null && status[active!.id]?.state == DlState.installed;
 
@@ -774,6 +995,8 @@ class ModelManager extends ChangeNotifier {
   /// Modelo de visión instalado (el más capaz) o, si no hay, el recomendado.
   ModelVariant get vlm {
     final all = catalog.where((m) => m.task == ModelTask.sketch).toList();
+    final chosen = all.where((m) => m.id == activeSketchId).firstOrNull;
+    if (chosen != null && status[chosen.id]?.state == DlState.installed) return chosen;
     for (final m in all.reversed) {
       if (status[m.id]?.state == DlState.installed) return m;
     }

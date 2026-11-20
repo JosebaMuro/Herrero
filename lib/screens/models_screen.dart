@@ -1,9 +1,13 @@
 import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../ai/accel.dart';
+import '../ai/engine_plan.dart';
+import '../ai/model_import.dart';
 import '../ai/model_manager.dart';
+import '../ai/onnx_inspect.dart';
 
 /// Gestor de modelos de IA local: qué pasos usan IA, qué modelo conviene a
 /// este equipo, descarga reanudable y ajustes de ejecución.
@@ -103,12 +107,210 @@ class _ModelsScreenState extends State<ModelsScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
   }
 
+  bool _importing = false;
+
+  /// Importa ficheros de modelo descargados por el usuario. [only]: para una variante.
+  Future<void> _import({ModelVariant? only}) async {
+    if (_importing) return;
+    final picked = await FilePicker.pickFiles(
+      dialogTitle: only == null ? 'Elige los ficheros del modelo (.onnx, .json, .txt)' : 'Ficheros de «${only.name}»',
+    );
+    if (picked.isEmpty || !mounted) return;
+    setState(() => _importing = true);
+    final results = <(String, String, bool)>[]; // (fichero, mensaje, correcto)
+    final staged = <File>[];
+    final progress = ValueNotifier<String>('Preparando…');
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (c) => AlertDialog(
+        content: Row(children: [
+          const SizedBox(width: 28, height: 28, child: CircularProgressIndicator(strokeWidth: 3)),
+          const SizedBox(width: 16),
+          Expanded(child: ValueListenableBuilder(valueListenable: progress, builder: (_, v, _) => Text(v))),
+        ]),
+      ),
+    );
+    try {
+      for (final f in picked) {
+        // ruta directa (PC) o copia temporal (Android, que entrega content://)
+        var path = f.path;
+        var move = false;
+        if (path == null || !File(path).existsSync()) {
+          progress.value = 'Copiando ${f.name}…';
+          final tmp = File('${(await mgr.importStaging()).path}${Platform.pathSeparator}${f.name}');
+          final sink = tmp.openWrite();
+          await sink.addStream(f.xFile.openRead());
+          await sink.close();
+          staged.add(tmp);
+          path = tmp.path;
+          move = true;
+        }
+        progress.value = 'Reconociendo ${f.name}…';
+        final info = sniff(path);
+        var cands = candidatesFor(f.name, info, only: only);
+        if (cands.isEmpty) {
+          final why = ortCompatibilityProblems(info);
+          results.add((
+            f.name,
+            info.format != ModelFormat.onnx && why.isNotEmpty && !f.name.toLowerCase().endsWith('.json') &&
+                    !f.name.toLowerCase().endsWith('.txt')
+                ? why.first
+                : 'No corresponde a ningún fichero de ${only == null ? 'los modelos de Herrero' : '«${only.name}»'}.',
+            false
+          ));
+          continue;
+        }
+        ImportTarget? target = cands.length == 1 ? cands.first : null;
+        if (target == null) {
+          if (mounted) Navigator.of(context).pop();
+          target = await _chooseTarget(f.name, cands);
+          if (mounted) {
+            showDialog<void>(
+              context: context,
+              barrierDismissible: false,
+              builder: (c) => AlertDialog(
+                content: Row(children: [
+                  const SizedBox(width: 28, height: 28, child: CircularProgressIndicator(strokeWidth: 3)),
+                  const SizedBox(width: 16),
+                  Expanded(child: ValueListenableBuilder(valueListenable: progress, builder: (_, v, _) => Text(v))),
+                ]),
+              ),
+            );
+          }
+          if (target == null) {
+            results.add((f.name, 'Sin importar (cancelado).', false));
+            continue;
+          }
+        }
+        progress.value = 'Comprobando ${f.name} (integridad y compatibilidad)…';
+        final (sha, size) = mgr.officialOf(target);
+        final check = await checkImport(path, target, officialSha: sha, officialSize: size);
+        if (!check.ok) {
+          results.add((f.name, check.errors.join(' '), false));
+          continue;
+        }
+        if (check.warnings.isNotEmpty && sha != null && check.sha256 != sha) {
+          if (mounted) Navigator.of(context).pop();
+          final go = await _confirmUnofficial(f.name, target, check);
+          if (mounted) {
+            showDialog<void>(
+              context: context,
+              barrierDismissible: false,
+              builder: (c) => AlertDialog(
+                content: Row(children: [
+                  const SizedBox(width: 28, height: 28, child: CircularProgressIndicator(strokeWidth: 3)),
+                  const SizedBox(width: 16),
+                  Expanded(child: ValueListenableBuilder(valueListenable: progress, builder: (_, v, _) => Text(v))),
+                ]),
+              ),
+            );
+          }
+          if (go != true) {
+            results.add((f.name, 'Sin importar (no es el oficial).', false));
+            continue;
+          }
+        }
+        progress.value = 'Instalando ${f.name}…';
+        await mgr.installImported(target, check, f.name, move: move);
+        final official = sha != null && check.sha256 == sha;
+        results.add((
+          f.name,
+          '→ ${target.label}. ${official ? 'Idéntico al oficial (SHA-256 comprobado).' : check.warnings.join(' ')}'
+              '${check.info.format == ModelFormat.onnx ? ' ONNX IR ${check.info.irVersion}, opset ${check.info.onnxOpset}.' : ''}',
+          true
+        ));
+      }
+    } catch (e) {
+      results.add(('', ModelManager.friendlyDownloadError(e), false));
+    } finally {
+      for (final t in staged) {
+        try {
+          if (t.existsSync()) t.deleteSync();
+        } catch (_) {}
+      }
+      if (mounted) Navigator.of(context).pop();
+      progress.dispose();
+      if (mounted) setState(() => _importing = false);
+    }
+    if (!mounted) return;
+    // qué falta para completar cada modelo tocado
+    final touched = {
+      for (final m in catalog)
+        if (results.any((r) => r.$3 && r.$2.contains(m.name))) m,
+    };
+    final pending = <String>[];
+    for (final m in touched) {
+      final miss = await mgr.missingFiles(m);
+      pending.add(miss.isEmpty ? '«${m.name}» está completo y listo.' : '«${m.name}»: faltan ${miss.join(', ')}.');
+    }
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('Importar modelo'),
+        content: SingleChildScrollView(
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            for (final r in results)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+                leading: Icon(r.$3 ? Icons.check_circle : Icons.error_outline,
+                    color: r.$3 ? Colors.green.shade700 : Theme.of(c).colorScheme.error),
+                title: Text(r.$1.isEmpty ? 'Error' : r.$1),
+                subtitle: Text(r.$2),
+              ),
+            if (pending.isNotEmpty) ...[
+              const Divider(),
+              for (final p in pending) Padding(padding: const EdgeInsets.only(top: 4), child: Text(p)),
+            ],
+          ]),
+        ),
+        actions: [FilledButton(onPressed: () => Navigator.pop(c), child: const Text('Aceptar'))],
+      ),
+    );
+  }
+
+  Future<ImportTarget?> _chooseTarget(String name, List<ImportTarget> cands) => showDialog<ImportTarget>(
+        context: context,
+        builder: (c) => SimpleDialog(
+          title: Text('¿A qué modelo pertenece «$name»?'),
+          children: [
+            for (final t in cands)
+              SimpleDialogOption(
+                onPressed: () => Navigator.pop(c, t),
+                child: Text(t.label),
+              ),
+            SimpleDialogOption(onPressed: () => Navigator.pop(c), child: const Text('Cancelar')),
+          ],
+        ),
+      );
+
+  Future<bool?> _confirmUnofficial(String name, ImportTarget t, ImportCheck c) => showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('No es el fichero oficial'),
+          content: Text('«$name» es un modelo ONNX válido y la app puede abrirlo como «${t.label}», pero no es '
+              'idéntico al que publica Herrero (${fmtBytes(c.size)}). Puede ser otra versión o una conversión '
+              'distinta: funcionará, aunque los resultados pueden cambiar.\n\n¿Importarlo igualmente?'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Importar')),
+          ],
+        ),
+      );
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Modelos de IA local'),
         actions: [
+          IconButton(
+            tooltip: 'Importar un modelo descargado',
+            onPressed: _importing ? null : () => _import(),
+            icon: const Icon(Icons.file_open_outlined),
+          ),
           IconButton(
             tooltip: 'Actualizar catálogo',
             onPressed: _refreshing ? null : _refresh,
@@ -133,6 +335,10 @@ class _ModelsScreenState extends State<ModelsScreen> {
                   child: ListTile(leading: const Icon(Icons.cloud_off), title: Text(_catalogError!)),
                 ),
               const SizedBox(height: 8),
+              _InstalledCard(onRemove: _remove, onImport: () => _import()),
+              const SizedBox(height: 8),
+              const _TaskEngineCard(),
+              const SizedBox(height: 8),
               const _StepsCard(),
               for (final task in ModelTask.values) ...[
                 Padding(
@@ -149,6 +355,7 @@ class _ModelsScreenState extends State<ModelsScreen> {
                     recommended: dev.recommended(task).id == m.id,
                     onDownload: () => _download(m),
                     onRemove: () => _remove(m),
+                    onImport: () => _import(only: m),
                   ),
               ],
               const SizedBox(height: 8),
@@ -204,6 +411,10 @@ class _DeviceCard extends StatelessWidget {
                         ? 'CPU (${dev.recommendedThreads} hilos)'
                         : GpuPacks.instance.gpus.join(' · ')))),
           ]),
+          if (ModelManager.instance.hardware != null) ...[
+            const SizedBox(height: 8),
+            Text('Detectado: ${ModelManager.instance.hardware!.summary}', style: Theme.of(context).textTheme.bodySmall),
+          ],
           const SizedBox(height: 10),
           Text.rich(TextSpan(children: [
             const TextSpan(text: 'Recomendado: ', style: TextStyle(fontWeight: FontWeight.bold)),
@@ -259,8 +470,13 @@ class _VariantCard extends StatelessWidget {
   final bool recommended;
   final VoidCallback onDownload;
   final VoidCallback onRemove;
+  final VoidCallback onImport;
   const _VariantCard(
-      {required this.m, required this.recommended, required this.onDownload, required this.onRemove});
+      {required this.m,
+      required this.recommended,
+      required this.onDownload,
+      required this.onRemove,
+      required this.onImport});
 
   @override
   Widget build(BuildContext context) {
@@ -270,8 +486,8 @@ class _VariantCard extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
     final size = mgr.sizeOf(m) > 0 ? fmtBytes(mgr.sizeOf(m)) : '≈ ${fmtBytes(m.approxBytes)}';
     final suit = dev.suitability(m);
-    final single = m.task != ModelTask.photo;
-    final active = (single || mgr.activeId == m.id) && st.state == DlState.installed;
+    final active = st.state == DlState.installed && mgr.activeFor(m.task)?.id == m.id;
+    final imported = mgr.importedFiles(m);
     return Card(
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
@@ -337,14 +553,16 @@ class _VariantCard extends StatelessWidget {
               if (st.state == DlState.installed) ...[
                 Icon(Icons.check_circle, color: Colors.green.shade700, size: 20),
                 const SizedBox(width: 6),
-                Text(active ? 'Instalado · en uso' : 'Instalado'),
+                Flexible(
+                  child: Text([
+                    active ? 'Instalado · en uso' : 'Instalado',
+                    if (imported.isNotEmpty) imported.values.every((o) => o) ? 'importado' : 'importado (no oficial)',
+                  ].join(' · ')),
+                ),
                 const Spacer(),
                 if (!active)
                   TextButton(
-                    onPressed: () {
-                      mgr.activeId = m.id;
-                      mgr.savePrefs();
-                    },
+                    onPressed: () => mgr.activate(m),
                     child: const Text('Usar'),
                   ),
                 IconButton(tooltip: 'Eliminar', onPressed: onRemove, icon: const Icon(Icons.delete_outline)),
@@ -354,10 +572,11 @@ class _VariantCard extends StatelessWidget {
                       child: Text(st.error ?? 'Error', style: TextStyle(color: cs.error, fontSize: 12)))
                 else
                   const Spacer(),
+                TextButton(onPressed: onImport, child: const Text('Importar')),
                 FilledButton.icon(
                   onPressed: st.state == DlState.error && (st.error ?? '').contains('no publicada') ? null : onDownload,
                   icon: const Icon(Icons.download),
-                  label: Text(st.bytesDone > 0 ? 'Reanudar' : 'Descargar'),
+                  label: Text(st.bytesDone > 0 || (mgr.partialBytes[m.id] ?? 0) > 0 ? 'Reanudar' : 'Descargar'),
                 ),
               ],
             ]),
@@ -609,5 +828,154 @@ class _AccelCardState extends State<_AccelCard> {
       ),
       if (st.state == DlState.downloading) LinearProgressIndicator(value: st.progress),
     ]);
+  }
+}
+
+
+/// Modelos instalados en el dispositivo: espacio, cuál se usa, con qué motor, y borrar.
+class _InstalledCard extends StatelessWidget {
+  final Future<void> Function(ModelVariant) onRemove;
+  final VoidCallback onImport;
+  const _InstalledCard({required this.onRemove, required this.onImport});
+
+  @override
+  Widget build(BuildContext context) {
+    final mgr = ModelManager.instance;
+    final t = Theme.of(context).textTheme;
+    final cs = Theme.of(context).colorScheme;
+    final installed = catalog.where((m) => mgr.status[m.id]?.state == DlState.installed).toList();
+    final partial = catalog
+        .where((m) => mgr.status[m.id]?.state != DlState.installed && (mgr.partialBytes[m.id] ?? 0) > 0)
+        .toList();
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Expanded(child: Text('Instalados en este ${mgr.device?.isMobile == true ? 'móvil' : 'equipo'}', style: t.titleMedium)),
+            Text(fmtBytes(mgr.totalDiskBytes), style: t.labelLarge),
+          ]),
+          const SizedBox(height: 4),
+          if (installed.isEmpty)
+            Text('Todavía no hay modelos. Descárgalos más abajo o importa los que ya tengas descargados.',
+                style: t.bodySmall),
+          for (final m in installed)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              leading: Icon(
+                mgr.activeFor(m.task)?.id == m.id ? Icons.radio_button_checked : Icons.radio_button_unchecked,
+                color: mgr.activeFor(m.task)?.id == m.id ? cs.primary : null,
+              ),
+              title: Text(m.name),
+              subtitle: Text([
+                fmtBytes(mgr.diskBytes[m.id] ?? 0),
+                mgr.activeFor(m.task)?.id == m.id ? 'en uso' : 'sin usar',
+                mgr.decision(m.task).runsOn,
+                if (mgr.importedFiles(m).isNotEmpty)
+                  mgr.importedFiles(m).values.every((o) => o) ? 'importado' : 'importado, no oficial',
+              ].join(' · ')),
+              trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                if (ModelManager.hasChoice(m.task) && mgr.activeFor(m.task)?.id != m.id)
+                  TextButton(onPressed: () => mgr.activate(m), child: const Text('Usar')),
+                IconButton(
+                    tooltip: 'Eliminar', onPressed: () => onRemove(m), icon: const Icon(Icons.delete_outline)),
+              ]),
+            ),
+          for (final m in partial)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              leading: const Icon(Icons.downloading),
+              title: Text(m.name),
+              subtitle: Text('Descarga a medias: ${fmtBytes(mgr.partialBytes[m.id] ?? 0)} de '
+                  '${fmtBytes(mgr.sizeOf(m) > 0 ? mgr.sizeOf(m) : m.approxBytes)}. Pulsa «Reanudar» en su ficha.'),
+              trailing: IconButton(
+                  tooltip: 'Borrar lo descargado', onPressed: () => onRemove(m), icon: const Icon(Icons.delete_outline)),
+            ),
+          const SizedBox(height: 6),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: OutlinedButton.icon(
+              onPressed: onImport,
+              icon: const Icon(Icons.file_open_outlined),
+              label: const Text('Importar un modelo descargado'),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(
+              'Si has bajado los ficheros por tu cuenta (desde el ordenador, la web de GitHub o un pendrive), '
+              'elígelos aquí: la app reconoce a qué modelo pertenecen, comprueba que son ONNX compatibles con su '
+              'motor y si son idénticos a los oficiales, y los instala sin descargar nada.',
+              style: t.bodySmall,
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
+/// Motor de cada tarea: el elegido automáticamente según el hardware, o uno fijado a mano.
+class _TaskEngineCard extends StatelessWidget {
+  const _TaskEngineCard();
+
+  @override
+  Widget build(BuildContext context) {
+    final mgr = ModelManager.instance;
+    final t = Theme.of(context).textTheme;
+    final cs = Theme.of(context).colorScheme;
+    final tips = {for (final task in ModelTask.values) mgr.decision(task).tip}..remove('');
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('Motor de cada tarea', style: t.titleMedium),
+          const SizedBox(height: 4),
+          Text('Herrero elige el motor según tu hardware. Puedes fijarlo a mano para una tarea si en tu '
+              '${mgr.device?.isMobile == true ? 'móvil' : 'equipo'} va mejor otro.', style: t.bodySmall),
+          for (final task in ModelTask.values) _row(context, mgr, task),
+          for (final tip in tips)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Icon(Icons.tips_and_updates_outlined, size: 18, color: cs.tertiary),
+                const SizedBox(width: 6),
+                Expanded(child: Text(tip, style: t.bodySmall)),
+              ]),
+            ),
+        ]),
+      ),
+    );
+  }
+
+  Widget _row(BuildContext context, ModelManager mgr, ModelTask task) {
+    final d = mgr.decision(task);
+    final override = mgr.taskEngine[task];
+    final short = task.label.split(' (').first;
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(short, style: const TextStyle(fontWeight: FontWeight.w600)),
+            Text('${d.runsOn} · ${d.reason}', style: Theme.of(context).textTheme.bodySmall),
+          ]),
+        ),
+        const SizedBox(width: 8),
+        DropdownButton<AiEngine?>(
+          value: override,
+          isDense: true,
+          underline: const SizedBox.shrink(),
+          items: [
+            DropdownMenuItem<AiEngine?>(
+                value: null, child: Text(mgr.engine == AiEngine.auto ? 'Automático' : 'Como el general')),
+            for (final e in taskEngineChoices()) DropdownMenuItem<AiEngine?>(value: e, child: Text(e.label)),
+          ],
+          onChanged: (e) => mgr.setTaskEngine(task, e),
+        ),
+      ]),
+    );
   }
 }
