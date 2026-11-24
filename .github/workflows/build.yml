@@ -1,4 +1,4 @@
-name: Compilar Herrero (APK + Windows)
+name: Compilar Herrero (Android, Windows, Linux e iOS)
 
 on:
   push:
@@ -104,6 +104,34 @@ jobs:
             Herrero-windows-setup.exe
             Herrero-windows-portable.zip
 
+  linux:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dependencias de GTK para Flutter
+        run: sudo apt-get update -q && sudo apt-get install -y -q ninja-build libgtk-3-dev clang cmake pkg-config liblzma-dev
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - name: ONNX Runtime 1.20 (operadores del VLM)
+        run: python3 scripts/ort_runtime.py linux
+      - run: flutter build linux --release
+      - name: Paquete tar.gz
+        run: |
+          test -f build/linux/x64/release/bundle/lib/libonnxruntime.so.1.15.1 || { echo "::error::falta ONNX Runtime en el paquete"; exit 1; }
+          cp -R build/linux/x64/release/bundle Herrero
+          cp installer/linux/herrero.desktop installer/linux/LEEME.txt Herrero/
+          tar -czf Herrero-linux-x64.tar.gz Herrero
+          ls -l Herrero-linux-x64.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Herrero-linux
+          path: Herrero-linux-x64.tar.gz
+
   ios:
     runs-on: macos-latest
     needs: test
@@ -137,9 +165,9 @@ jobs:
   release:
     # iOS no bloquea la publicación de Android y Windows si falla
     if: >-
-      always() && needs.android.result == 'success' && needs.windows.result == 'success' &&
+      always() && needs.android.result == 'success' && needs.windows.result == 'success' && needs.linux.result == 'success' &&
       (startsWith(github.ref, 'refs/tags/v') || contains(github.event.head_commit.message, '[release]'))
-    needs: [android, windows, ios]
+    needs: [android, windows, linux, ios]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -147,6 +175,12 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+      - name: Documentación y código fuente
+        run: |
+          cp docs/manual-de-usuario.md dist/Herrero-manual-de-usuario.md
+          cp docs/documentacion-tecnica.md dist/Herrero-documentacion-tecnica.md
+          git archive --format=zip --prefix=Herrero-src/ -o dist/Herrero-codigo-fuente.zip HEAD
+          ls -l dist
       - name: Versión
         id: ver
         run: |

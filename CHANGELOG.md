@@ -1,5 +1,36 @@
 # Historial de versiones
 
+## 4.3.0 (2026-11-24)
+
+- **Gestor de proyectos**: guardar el proyecto (nombre, cliente, obra, notas), abrirlo, duplicarlo,
+  borrarlo, buscarlo y cambiar su estado (borrador, presupuestado, aceptado, en fabricación, en
+  montaje, terminado, descartado). Cada proyecto lleva su historial. Se guarda solo la ficha y el
+  texto pedido (unos kB) y el diseño se recalcula al abrir; la foto IA se guarda aparte.
+- **Presupuesto** (pestaña nueva): materiales según las barras del plan de corte, chapa con un 15 %
+  de recortes, tornillería y cerramientos; horas de fabricación, soldadura y montaje con tus
+  precios por hora y rendimientos ajustables; galvanizado o pintura; transporte, margen e IVA. Cada
+  línea dice de dónde sale su precio (factura, tarifa, web o fijado a mano, con proveedor, fecha y
+  distancia) y las que no tienen precio se marcan y no suman. PDF para el cliente o con detalle.
+- **Base de precios**: importar facturas y tarifas en PDF o foto (OCR local), con proveedor, CIF,
+  dirección, fecha, nº de factura y líneas con material reconocido (IPE, HEB, tubo, chapa,
+  tornillería, hilo, galvanizado…) y precio unitario neto con descuento. Solo se aceptan líneas en
+  las que cantidad × precio cuadra con el importe; todo se revisa antes de guardar.
+- **Ubicación y radio**: GPS (Android, Windows, Linux con GeoClue, iPhone) o población escrita; el
+  presupuesto solo usa proveedores dentro del radio y precios de los últimos meses elegidos, con
+  mediana, el más barato o el más reciente.
+- **Distribuidores cercanos** desde OpenStreetMap, con teléfono, web y correo cuando los hay;
+  «Pedir precio» abre un correo o SMS con el pedido de material del proyecto, y se pueden leer los
+  precios de la página de tarifas de un distribuidor si la publica.
+- **Apartados aislados**: resumen, cálculo, materiales, fabricación, soldadura, montaje, planos y
+  presupuesto, cada uno con su cabecera, su destinatario y su numeración; en un PDF o uno por
+  apartado.
+- **Memoria**: con menos de 6 GB de RAM (o si se elige en Modelos), los modelos de IA se cargan por
+  turnos según el paso del flujo (ficha, planos, foto, facturas): al cambiar de paso se cancelan los
+  que no tocan y se sueltan las cachés. Caché de imágenes limitada en el móvil y vaciado al avisar
+  el sistema de poca memoria. Los PDF por apartado solo generan las imágenes que usan.
+- **Linux x64** (paquete tar.gz con ONNX Runtime 1.20).
+- La release incluye manual de usuario, documentación técnica y código fuente.
+
 ## 4.2.0 (2026-11-20)
 
 - **Gestor de modelos de IA** renovado: tarjeta «Instalados» con lo que ocupa cada modelo y el

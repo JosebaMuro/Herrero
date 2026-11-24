@@ -1,0 +1,12 @@
+Herrero para Linux (x64)
+
+1. Descomprime:      tar -xzf Herrero-linux-x64.tar.gz
+2. Ejecuta:          ./Herrero/herrero
+3. (Opcional) Menú:  edita herrero.desktop para que Exec apunte a la ruta
+                     completa de ./Herrero/herrero y cópialo a
+                     ~/.local/share/applications/
+
+Requisitos: GTK 3 (viene en Ubuntu, Debian, Fedora, Mint…).
+Para la ubicación por GPS hace falta GeoClue (paquete geoclue-2.0); si no está,
+escribe tu población en Precios > Ubicación.
+Para elegir archivos hace falta zenity o kdialog.

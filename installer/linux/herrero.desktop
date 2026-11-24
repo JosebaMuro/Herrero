@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Herrero
+Comment=Oficina técnica de estructuras metálicas
+Exec=herrero
+Icon=applications-engineering
+Terminal=false
+Categories=Office;Engineering;
