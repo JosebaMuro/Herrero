@@ -1,10 +1,12 @@
-Herrero para Linux (x64)
+Herrero para Linux (x86-64, Ubuntu 22.04 LTS o posterior)
 
 1. Descomprime:      tar -xzf Herrero-linux-x64.tar.gz
-2. Ejecuta:          ./Herrero/herrero
+2. App de escritorio: ./herrero/herrero
+   TUI de terminal:   ./herrero/herrero-tui   (también sin escritorio; --ayuda)
 3. (Opcional) Menú:  edita herrero.desktop para que Exec apunte a la ruta
-                     completa de ./Herrero/herrero y cópialo a
+                     completa de ./herrero/herrero y cópialo a
                      ~/.local/share/applications/
+4. (Opcional) Ubuntu en modo texto con NVIDIA/CUDA: sudo ./herrero/instalar-ubuntu.sh
 
 Requisitos: GTK 3 (viene en Ubuntu, Debian, Fedora, Mint…).
 Para la ubicación por GPS hace falta GeoClue (paquete geoclue-2.0); si no está,

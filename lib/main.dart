@@ -5,6 +5,7 @@ import 'package:material_ui/material_ui.dart';
 
 import 'ai/model_gate.dart';
 import 'ai/model_manager.dart';
+import 'ai/accel.dart';
 import 'screens/home_screen.dart';
 import 'services/cut_prefs.dart';
 
@@ -15,6 +16,9 @@ Future<void> main() async {
   await ModelGate.instance.loadSettings();
   // el perfil del equipo (RAM) decide si los modelos van por turnos
   unawaited(ModelManager.instance.load().catchError((_) {}));
+  // Linux: despertar la gráfica NVIDIA desde el arranque (también sin escritorio), para
+  // que CUDA la encuentre lista en la primera petición a la IA.
+  if (Platform.isLinux) GpuPacks.instance.load();
   runApp(const HerreroApp());
 }
 

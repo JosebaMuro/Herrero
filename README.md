@@ -1,6 +1,6 @@
 # Herrero · Oficina técnica de estructuras metálicas
 
-App ligera para **Android, iPhone, Windows y Linux** que, a partir de una descripción en lenguaje natural
+App ligera para **Android, iPhone, Windows y Linux** (también **TUI de terminal**) que, a partir de una descripción en lenguaje natural
 ("nave a dos aguas de 30 x 15 m, 6 m al alero, panel sándwich, en Vitoria"), predimensiona la
 estructura según **CTE DB-SE-A / Eurocódigo 3** y genera:
 
@@ -34,6 +34,37 @@ Manuales: [manual de usuario](docs/manual-de-usuario.md) · [documentación téc
 - Impresión por apartados (un PDF por destinatario).
 - Con poca RAM, los modelos de IA se cargan por turnos según el paso en que estés.
 - Versión para **Linux** x64.
+
+## Novedades de la v4.1
+
+- **Linux y TUI de terminal** (`herrero-tui`), también en modo texto sin escritorio.
+- **NVIDIA CUDA en Linux** (p. ej. RTX 4050 de 6 GB) y la gráfica se despierta sola al arrancar.
+- Instalador para Ubuntu LTS que arranca directamente en la TUI, con modo sin conexión.
+
+### Ubuntu en modo texto con Herrero
+
+```bash
+# con internet
+sudo ./instalar-ubuntu.sh
+# sin conexión: preparar en el mismo Ubuntu (mejor en el propio equipo) y luego instalar
+./instalar-ubuntu.sh --preparar /media/usb/herrero-offline
+sudo /media/usb/herrero-offline/instalar-ubuntu.sh --desde /media/usb/herrero-offline
+# volver al escritorio
+sudo /opt/herrero/instalar-ubuntu.sh --deshacer
+```
+
+El instalador pone el controlador NVIDIA *headless* (módulos firmados de Ubuntu, válidos con
+Secure Boot), carga `nvidia`/`nvidia_uvm` al arrancar, activa `nvidia-persistenced`, deja el
+sistema en `multi-user.target` (sin X11) y abre Herrero en tty1 con inicio de sesión automático.
+Para alternar: **Ctrl+R** en la TUI reinicia con el escritorio, y el botón de terminal de la app de
+escritorio reinicia en modo TUI (`sudo herrero-modo escritorio|tui --reiniciar` a mano).
+
+### TUI sin pantalla
+
+```bash
+herrero-tui --calcular "marquesina para 3 coches en Burgos" --exportar   # CSV, DXF y memoria
+herrero-tui --gpu                                                        # diagnóstico CUDA
+```
 
 ## Novedades de la v4
 
@@ -92,7 +123,8 @@ Los binarios se generan con GitHub Actions y se publican en *Releases*:
 - `Herrero-android.apk` — Android universal (también móviles antiguos de 32 bits).
 - `Herrero-windows-setup.exe` — instalador para Windows 10/11 x64.
 - `Herrero-windows-portable.zip` — versión portable (descomprimir y ejecutar `herrero.exe`).
-- `Herrero-linux-x64.tar.gz` — Linux x64 con GTK 3 (descomprimir y ejecutar `Herrero/herrero`).
+- `Herrero-linux-x64.tar.gz` — Linux x86-64 (Ubuntu 22.04 o posterior): app y `herrero-tui`.
+- `instalar-herrero-ubuntu.sh` — instalador para Ubuntu LTS en modo texto (ver arriba).
 - `Herrero-ios.ipa` — iPhone y iPad con iOS 15 o posterior, sin firmar (ver abajo).
 - `Herrero-manual-de-usuario.md` y `Herrero-documentacion-tecnica.md` — documentación.
 - `Herrero-codigo-fuente.zip` — código fuente de esa versión.

@@ -25,11 +25,13 @@ Texto / plano ──► parser + comprensión ──► StructureSpec (ficha)
 | `lib/engine/` | Motor: `parser.dart` (texto → ficha), `designer*.dart` (diseño por tipología), `profiles.dart` (catálogos y materiales), `cutting.dart` (optimizador de corte), `normativa.dart`, `bom.dart`, **`pricing.dart`**, **`invoice_parser.dart`**, **`budget.dart`**, **`spec_json.dart`** |
 | `lib/cad/` | Láminas CAD (cajetín ISO 7200, cotas, soldadura ISO 2553), PDF vectorial, DXF R12, COLLADA |
 | `lib/plans/` | Lector de PDF propio, OCR PP-OCRv4, análisis de planos |
-| `lib/ai/` | Modelos locales: e5-small, Qwen3, SmolVLM, SD-Turbo; aceleración (DirectML, CUDA, OpenVINO, NNAPI); **`model_gate.dart`** |
+| `lib/ai/` | Modelos locales: e5-small, Qwen3, SmolVLM, SD-Turbo; aceleración (DirectML, CUDA, OpenVINO, NNAPI; `ort_core.dart` y `download.dart` en Dart puro, compartidos con la TUI; `comprehension_core.dart`); **`model_gate.dart`** |
 | `lib/services/` | Exportación, **`project_store.dart`**, **`price_store.dart`**, **`geo.dart`**, **`sections_pdf.dart`** |
 | `lib/screens/` | Pantallas; nuevas: `projects_screen.dart`, `prices_screen.dart`, `invoice_screen.dart`, `budget_tab.dart` |
 | `linux/` | Ejecutable GTK (nuevo en 4.3) |
-| `scripts/` | `ort_runtime.py` (cambia ORT 1.15 del paquete por 1.20 en cada plataforma), conversión de modelos |
+| `bin/herrero_tui.dart`, `lib/tui/` | TUI de terminal (Dart puro, sin Flutter), compilada con `scripts/build_tui.sh` |
+| `lib/system/boot_mode.dart` | Cambio de arranque escritorio ↔ TUI (`herrero-modo`, pkexec) |
+| `scripts/` | `instalar-ubuntu.sh` (instalador de Ubuntu en modo texto con NVIDIA), `build_tui.sh`, `ort_runtime.py` (cambia ORT 1.15 del paquete por 1.20 en cada plataforma), conversión de modelos |
 
 ## 3. Gestor de proyectos (`services/project_store.dart`)
 
@@ -142,18 +144,21 @@ no tener varios documentos en memoria. `buildPdf` (proyecto completo) usa todos 
 ## 10. Plataformas, compilación y publicación
 
 - `flutter pub get`, `python3 scripts/ort_runtime.py <android|windows|linux|ios>`, `flutter build …`.
-- Linux: dependencias `clang cmake ninja-build pkg-config libgtk-3-dev`; el paquete lleva
-  `libonnxruntime` 1.20 con el nombre que espera el paquete pub (`libonnxruntime.so.1.15.1`).
+- Linux: se compila en Ubuntu 22.04 (glibc 2.35) con `clang cmake ninja-build pkg-config
+  libgtk-3-dev`; el paquete lleva `libonnxruntime` 1.20 con el nombre que espera el paquete pub
+  (`libonnxruntime.so.1.15.1`), `herrero-tui` y el instalador. CUDA: paquete GPU descargable
+  (ONNX Runtime 1.20.1 GPU, cudart, cuBLAS, cuDNN 9…) que se precarga al arrancar; al iniciar se
+  despierta la gráfica (`nvidia-modprobe`, `cuInit`); `HERRERO_CUDA_MEM_MB` limita cada sesión.
 - Permisos: Android `INTERNET`, `ACCESS_COARSE_LOCATION`, `ACCESS_FINE_LOCATION`; iOS
   `NSCameraUsageDescription`, `NSLocationWhenInUseUsageDescription`.
 - CI (`.github/workflows/build.yml`): pruebas → Android (APK universal y arm64), Windows (instalador
-  y portable), **Linux (tar.gz)**, iOS (IPA sin firmar). Un commit en `main` con `[release]` publica
+  y portable), **Linux (tar.gz con app, TUI e instalador; la TUI se prueba en un pty)**, instalador en Ubuntu 24.04, iOS (IPA sin firmar). Un commit en `main` con `[release]` publica
   la release con binarios, manual de usuario, documentación técnica y `Herrero-codigo-fuente.zip`
   (`git archive`).
 
 ## 11. Pruebas
 
-`flutter test` (211+ pruebas). Nuevas en 4.3:
+`flutter test` (incluye `test/tui_test.dart`, `accel_test`, `gpu_pack_test`). Nuevas en 4.3:
 - `test/pricing_test.dart`: normalización de materiales, números, lectura de factura y tarifa,
   radio, conversión €/m↔€/kg, niveles de coincidencia, antigüedad, presupuesto sin inventar precios,
   almacén de proyectos (guardar, índice, duplicar, búsqueda, reconstrucción, borrado).

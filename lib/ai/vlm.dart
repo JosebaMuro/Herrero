@@ -7,7 +7,7 @@ import 'dart:typed_data';
 
 import 'package:onnxruntime/onnxruntime.dart';
 
-import 'accel.dart';
+import 'ort_core.dart';
 import 'bpe_tokenizer.dart';
 import 'ort_util.dart';
 

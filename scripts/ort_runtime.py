@@ -90,28 +90,30 @@ DLL_BY_PATH = ("DynamicLibrary.open(File(Platform.resolvedExecutable).parent.pat
 DLL_LOADER = 'herreroOpenOrt()'
 
 
+SO_BY_NAME = "DynamicLibrary.open('libonnxruntime.so.1.15.1')"
+
+
 def patch_dll_loader(pkg):
     """Windows trae su propio onnxruntime.dll (antiguo) en System32 y algunos componentes
     del sistema lo cargan en el proceso. Abrirlo solo por nombre devuelve ese módulo ya
     cargado en vez del 1.20 que va junto a herrero.exe, y Qwen3 falla con «Unrecognized
     attribute: softcap for operator GroupQueryAttention». Se abre siempre por ruta completa
     con scripts/ort_loader.dart, que además elige el paquete de aceleración (CUDA u
-    OpenVINO) si el usuario lo ha instalado y seleccionado."""
+    OpenVINO) si el usuario lo ha instalado y seleccionado. En Linux hace lo mismo con el
+    paquete CUDA (y precarga sus bibliotecas de NVIDIA)."""
     here = os.path.dirname(os.path.abspath(__file__))
     bdir = os.path.join(pkg, 'lib', 'src', 'bindings')
     shutil.copyfile(os.path.join(here, 'ort_loader.dart'), os.path.join(bdir, 'herrero_loader.dart'))
     src = os.path.join(bdir, 'bindings.dart')
     text = open(src, encoding='utf-8').read()
-    if DLL_LOADER not in text:
-        for old in (DLL_BY_NAME, DLL_BY_PATH):
-            if old in text:
-                text = text.replace(old, DLL_LOADER)
-                break
-        else:
-            raise SystemExit('bindings.dart inesperado: ' + src)
+    for old in (DLL_BY_NAME, DLL_BY_PATH, SO_BY_NAME):
+        text = text.replace(old, DLL_LOADER)
+    if 'herrero_loader.dart' not in text:
         text = text.replace("import 'dart:io';", "import 'dart:io';\nimport 'herrero_loader.dart';", 1)
-        open(src, 'w', encoding='utf-8').write(text)
-    print('  ->', src, 'onnxruntime.dll por ruta completa (herrero_loader.dart)')
+    open(src, 'w', encoding='utf-8').write(text)
+    if text.count(DLL_LOADER) < 2:
+        raise SystemExit('bindings.dart: no se pudo poner el cargador en Windows y Linux: ' + src)
+    print('  ->', src, 'ONNX Runtime por ruta completa en Windows y Linux (herrero_loader.dart)')
 
 
 def patch_bundle_directml(pkg):
@@ -156,6 +158,7 @@ def main(platform):
         with z.open('runtimes/linux-x64/native/libonnxruntime.so') as src, open(dst, 'wb') as out:
             shutil.copyfileobj(src, out)
         print('  ->', dst, os.path.getsize(dst))
+        patch_dll_loader(pkg)
     elif platform == 'ios':
         spec = os.path.join(pkg, 'ios', 'onnxruntime.podspec')
         text = open(spec, encoding='utf-8').read()

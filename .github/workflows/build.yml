@@ -24,6 +24,8 @@ jobs:
           channel: stable
           cache: true
       - run: flutter pub get
+      - name: Análisis (solo errores)
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
       - run: flutter test
 
   android:
@@ -105,32 +107,84 @@ jobs:
             Herrero-windows-portable.zip
 
   linux:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04 # glibc 2.35: el binario vale para Ubuntu 22.04 LTS y posteriores
     needs: test
     steps:
       - uses: actions/checkout@v4
-      - name: Dependencias de GTK para Flutter
-        run: sudo apt-get update -q && sudo apt-get install -y -q ninja-build libgtk-3-dev clang cmake pkg-config liblzma-dev
+      - name: Dependencias de compilación (GTK)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
       - run: flutter pub get
-      - name: ONNX Runtime 1.20 (operadores del VLM)
+      - name: ONNX Runtime 1.20 y cargador con el paquete CUDA
         run: python3 scripts/ort_runtime.py linux
       - run: flutter build linux --release
-      - name: Paquete tar.gz
+      - name: TUI de terminal (herrero-tui)
+        run: scripts/build_tui.sh build/linux/x64/release/bundle/herrero-tui
+      - name: Comprobar la TUI y ONNX Runtime del paquete
         run: |
-          test -f build/linux/x64/release/bundle/lib/libonnxruntime.so.1.15.1 || { echo "::error::falta ONNX Runtime en el paquete"; exit 1; }
-          cp -R build/linux/x64/release/bundle Herrero
-          cp installer/linux/herrero.desktop installer/linux/LEEME.txt Herrero/
-          tar -czf Herrero-linux-x64.tar.gz Herrero
+          B=build/linux/x64/release/bundle
+          ls -l $B $B/lib
+          test -f $B/lib/libonnxruntime.so.1.15.1 || { echo "::error::falta ONNX Runtime en el paquete"; exit 1; }
+          $B/herrero-tui --ayuda
+          $B/herrero-tui --calcular "nave a dos aguas de 30 x 15 m, 6 m al alero, en Vitoria" --sin-ia --exportar /tmp/herrero-out
+          ls -R /tmp/herrero-out
+          # sin gráfica NVIDIA: diagnóstico sin errores y vuelta a CPU
+          $B/herrero-tui --gpu --motor cpu
+          # TUI interactiva en un terminal de verdad (pty, TERM=linux)
+          python3 test/tui/pty_smoke.py $B/herrero-tui
+      - name: Empaquetar
+        run: |
+          cp scripts/instalar-ubuntu.sh installer/linux/herrero.desktop installer/linux/LEEME.txt build/linux/x64/release/bundle/
+          tar -C build/linux/x64/release -czf Herrero-linux-x64.tar.gz --transform 's,^bundle,herrero,' bundle
+          cp scripts/instalar-ubuntu.sh instalar-herrero-ubuntu.sh
           ls -l Herrero-linux-x64.tar.gz
       - uses: actions/upload-artifact@v4
         with:
           name: Herrero-linux
-          path: Herrero-linux-x64.tar.gz
+          path: |
+            Herrero-linux-x64.tar.gz
+            instalar-herrero-ubuntu.sh
+
+  instalador:
+    name: Instalador de la suite en Ubuntu 24.04
+    runs-on: ubuntu-24.04
+    needs: linux
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: Herrero-linux
+      - name: Instalar Herrero, Oficina y Prueba (venv compartido, modo terminal)
+        run: |
+          sudo scripts/instalar-ubuntu.sh --sin-menu --usuario "$USER" --proyectos herrero,oficina,prueba \
+            --tarball Herrero-linux-x64.tar.gz --sin-nvidia --sin-modelos
+      - name: Comprobar
+        run: |
+          set -x
+          herrero-tui --calcular "marquesina para 3 coches en Burgos" --sin-ia | head -5
+          ls /opt/suite/venv
+          test "$(ls /opt/suite/venv | wc -l)" = 1   # Oficina y Prueba comparten un venv
+          du -sh /opt/suite/venv/*
+          for p in 8775 8765; do
+            for i in $(seq 60); do curl -fsS -o /dev/null "http://127.0.0.1:$p/" && break; sleep 2; done
+            curl -fsS -o /dev/null -w "puerto $p: HTTP %{http_code}\n" "http://127.0.0.1:$p/"
+          done
+          systemctl get-default | grep -q multi-user.target
+          test -x /usr/local/bin/suite && test -x /usr/local/sbin/herrero-modo
+          sudo -n /usr/local/sbin/herrero-modo tui   # regla de sudo sin contraseña
+          cat ~/.profile ~/.bash_profile 2>/dev/null | grep -q "suite-tui"
+          sudo scripts/instalar-ubuntu.sh --deshacer --usuario "$USER"
+          systemctl get-default | grep -q graphical.target
+      - name: Diagnóstico si falla
+        if: failure()
+        run: |
+          sudo journalctl -u suite-oficina -u suite-prueba --no-pager | tail -60 || true
 
   ios:
     runs-on: macos-latest

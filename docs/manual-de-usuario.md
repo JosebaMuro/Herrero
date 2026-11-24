@@ -129,8 +129,22 @@ se genera un archivo para cada uno, listo para enviar solo su parte a cada perso
 
 ## 8. Linux
 
-Descomprime `Herrero-linux-x64.tar.gz` y ejecuta `Herrero/herrero`. Necesita GTK 3; la ubicación por
-GPS usa GeoClue y la elección de archivos, zenity o kdialog. Ver `LEEME.txt` dentro del paquete.
+Descomprime `Herrero-linux-x64.tar.gz` y ejecuta `herrero/herrero` (app de escritorio, necesita
+GTK 3) o `herrero/herrero-tui` (**TUI de terminal**, también sin escritorio). La ubicación por GPS
+usa GeoClue y la elección de archivos, zenity o kdialog. Ver `LEEME.txt` dentro del paquete.
+
+- **TUI**: escribe la petición, revisa la ficha «Lo que he entendido» y recorre el resultado por
+  pestañas (resumen, despiece, comprobaciones, uniones, montaje, normativa); exporta CSV, DXF y
+  memoria en Markdown. Ctrl+G abre «IA y GPU» (motor, paquete CUDA, modelos y prueba de velocidad).
+  Sin pantalla: `herrero-tui --calcular "…"`, `--gpu`, `--instalar-cuda`.
+- **NVIDIA CUDA**: el paquete CUDA descargable acelera la IA en gráficas NVIDIA (también con poca
+  memoria, p. ej. 6 GB). Si la gráfica no responde, se avisa con los comandos para arreglarlo y la
+  IA sigue en CPU.
+- **Instalador de Ubuntu** (`instalar-herrero-ubuntu.sh`): instala la app, el controlador NVIDIA y
+  el arranque en modo texto con la TUI; `--preparar CARPETA` lo descarga todo para instalar sin
+  conexión con `--desde CARPETA`, y `--deshacer` vuelve al escritorio.
+- **Cambiar de modo**: en la TUI, Ctrl+R reinicia con escritorio; en la app de Linux, el botón de
+  terminal reinicia en modo TUI.
 
 ## 9. Privacidad
 
