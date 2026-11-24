@@ -4,7 +4,6 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:share_plus/share_plus.dart';
 
@@ -13,13 +12,12 @@ import '../cad/collada.dart';
 import '../cad/dxf.dart';
 import '../cad/sheets.dart';
 import '../engine/bom.dart';
-import '../engine/cutting.dart';
-import '../engine/materials.dart';
+import '../engine/budget.dart';
 import '../engine/model.dart';
-import '../engine/normativa.dart';
-import '../views/drawing_utils.dart';
-import '../views/iso_view.dart';
 import '../views/render_view.dart';
+import 'sections_pdf.dart';
+
+export 'sections_pdf.dart' show ProjectSection, ProjectSectionInfo, ProjectInfo, buildSectionsPdf;
 
 String _n(double v, [int d = 1]) => v.toStringAsFixed(d).replaceAll('.', ',');
 
@@ -77,6 +75,8 @@ Future<String> saveAndShare(Uint8List bytes, String filename, {String? text}) as
     await SharePlus.instance.share(ShareParams(files: [XFile(f.path)], text: text, sharePositionOrigin: _shareOrigin()));
   } else if (Platform.isWindows) {
     await Process.run('explorer', ['/select,', f.path]);
+  } else if (Platform.isLinux) {
+    await Process.run('xdg-open', [dir.path]).catchError((_) => ProcessResult(0, 1, '', ''));
   }
   return f.path;
 }
@@ -88,234 +88,25 @@ Future<String> exportCsv(Design d) async {
 
 List<int> bomCsvBytes(Design d) => utf8.encode(bomCsv(d));
 
-/// Genera el PDF completo del proyecto.
+/// Genera el PDF completo del proyecto: todos los apartados, cada uno en
+/// páginas propias con su cabecera y numeración (ver sections_pdf.dart).
 Future<Uint8List> buildPdf(Design d,
-    {Finish finish = Finish.galvanizado, Uint8List? aiPhoto}) async {
-  final reg = pw.Font.ttf(await rootBundle.load('assets/fonts/Roboto-Regular.ttf'));
-  final bold = pw.Font.ttf(await rootBundle.load('assets/fonts/Roboto-Bold.ttf'));
-  final doc = pw.Document(
-      theme: pw.ThemeData.withFont(base: reg, bold: bold),
-      title: 'Herrero – ${d.spec.type.label}',
-      author: 'Herrero · Oficina técnica');
-
-  final render = await renderPng(d, finish, OrbitCamera());
-  final iso = await _png(await paintToImage(
-      (c, s) => IsoPainter(d).paint(c, s), const Size(1100, 760), 2));
-
-  final s = d.spec;
-  const head = pw.TextStyle(fontSize: 8, color: PdfColors.white);
-  const cell = pw.TextStyle(fontSize: 7.5);
-  pw.Widget table(List<String> headers, List<List<String>> rows) =>
-      pw.TableHelper.fromTextArray(
-        headers: headers,
-        data: rows,
-        headerStyle: head.copyWith(font: bold),
-        headerDecoration: const pw.BoxDecoration(color: PdfColor.fromInt(0xFF263238)),
-        cellStyle: cell,
-        cellAlignment: pw.Alignment.centerLeft,
-        oddRowDecoration: const pw.BoxDecoration(color: PdfColor.fromInt(0xFFF1F4F5)),
-        cellPadding: const pw.EdgeInsets.symmetric(horizontal: 3, vertical: 2),
-      );
-  pw.Widget h1(String t) => pw.Padding(
-      padding: const pw.EdgeInsets.only(top: 10, bottom: 5),
-      child: pw.Text(t, style: pw.TextStyle(fontSize: 13, font: bold, color: const PdfColor.fromInt(0xFFBF360C))));
-
-  pw.Widget footer(pw.Context ctx) => pw.Row(
-        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-        children: [
-          pw.Text('Herrero · Predimensionado orientativo – validar por técnico competente',
-              style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey700)),
-          pw.Text('${ctx.pageNumber}/${ctx.pagesCount}',
-              style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey700)),
-        ],
-      );
-
-  // Portada
-  doc.addPage(pw.Page(
-    pageFormat: PdfPageFormat.a4,
-    margin: const pw.EdgeInsets.all(28),
-    build: (ctx) => pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
-      pw.Text('HERRERO · OFICINA TÉCNICA',
-          style: pw.TextStyle(font: bold, fontSize: 10, color: const PdfColor.fromInt(0xFFBF360C), letterSpacing: 2)),
-      pw.SizedBox(height: 4),
-      pw.Text(s.type.label, style: pw.TextStyle(font: bold, fontSize: 22)),
-      pw.Text('${dimsText(s)} · ${s.grade.name}',
-          style: const pw.TextStyle(fontSize: 12)),
-      pw.SizedBox(height: 8),
-      pw.Container(
-        padding: const pw.EdgeInsets.all(6),
-        color: const PdfColor.fromInt(0xFFF1F4F5),
-        child: pw.Text('Solicitud: "${d.prompt}"', style: const pw.TextStyle(fontSize: 9)),
-      ),
-      pw.SizedBox(height: 10),
-      pw.ClipRRect(
-          horizontalRadius: 6,
-          verticalRadius: 6,
-          child: pw.Image(pw.MemoryImage(aiPhoto ?? render), height: 330, fit: pw.BoxFit.cover)),
-      pw.SizedBox(height: 12),
-      pw.Row(children: [
-        _kpi(metalLabel(s.grade), '${_n(d.steelKg, 0)} kg', bold),
-        _kpi('Perfiles', '${_n(d.profilesKg, 0)} kg', bold),
-        _kpi('Chapas', '${_n(d.platesKg, 0)} kg', bold),
-        _kpi('Ratio', '${_n(d.steelRatio.$1, 1)} ${d.steelRatio.$2}', bold),
-      ]),
-      pw.SizedBox(height: 6),
-      pw.Row(children: [
-        _kpi('Soldadura', '${_n(d.weldMeters, 1)} m', bold),
-        _kpi('Consumible', '${_n(d.consumableKg, 1)} kg', bold),
-        _kpi('Pintura', '${_n(d.paintM2, 0)} m²', bold),
-        _kpi('η máx.', '${_n(d.maxUtilization * 100, 0)} %', bold),
-      ]),
-      pw.Spacer(),
-      ...d.warnings.map((w) => pw.Bullet(text: w, style: const pw.TextStyle(fontSize: 8, color: PdfColors.red900))),
-      pw.SizedBox(height: 4),
-      pw.Text('Generado el ${DateTime.now().toString().substring(0, 16)}',
-          style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey600)),
-    ]),
-  ));
-
-  // Memoria de cálculo
-  doc.addPage(pw.MultiPage(
-    pageFormat: PdfPageFormat.a4,
-    margin: const pw.EdgeInsets.all(28),
-    footer: footer,
-    build: (ctx) => [
-      h1('Materiales'),
-      pw.Table(
-        columnWidths: const {0: pw.FixedColumnWidth(110), 1: pw.FlexColumnWidth()},
-        children: [
-          for (final (k, v) in materialRows(d))
-            pw.TableRow(children: [
-              pw.Padding(padding: const pw.EdgeInsets.symmetric(vertical: 1.5), child: pw.Text(k, style: pw.TextStyle(font: bold, fontSize: 8.5))),
-              pw.Padding(padding: const pw.EdgeInsets.symmetric(vertical: 1.5), child: pw.Text(v, style: const pw.TextStyle(fontSize: 8.5))),
-            ]),
-        ],
-      ),
-      h1('1. Memoria de cálculo – hipótesis'),
-      ...d.hypotheses.map((h) => pw.Bullet(text: h, style: const pw.TextStyle(fontSize: 8.5))),
-      h1('2. Comprobaciones (ELU / ELS)'),
-      table(['Elemento', 'Comprobación', 'η', 'Estado', 'Detalle'], [
-        for (final c in d.checks)
-          [
-            c.element,
-            c.description,
-            '${_n(c.utilization * 100, 0)} %',
-            c.ok ? 'CUMPLE' : 'NO CUMPLE',
-            c.detail
-          ]
-      ]),
-      h1('3. Despiece de perfiles'),
-      table(['Marca', 'Elemento', 'Perfil', 'Long. (mm)', 'Ud.', 'Corte', 'kg/ud', 'kg'], [
-        for (final p in d.pieces)
-          [
-            p.mark,
-            p.description,
-            p.profile.name,
-            p.lengthMm.toStringAsFixed(0),
-            '${p.qty}',
-            p.cut,
-            _n(p.unitKg),
-            _n(p.totalKg, 0)
-          ],
-        ['', 'TOTAL PERFILES', '', '', '${d.pieces.fold<int>(0, (a, p) => a + p.qty)}', '', '', _n(d.profilesKg, 0)],
-      ]),
-      h1('4. Chapas'),
-      table(['Marca', 'Descripción', 'Dimensiones (mm)', 'Ud.', 'kg', 'Notas'], [
-        for (final p in d.plates)
-          [
-            p.mark,
-            p.description,
-            '${p.w.toStringAsFixed(0)} x ${p.h.toStringAsFixed(0)} x ${p.t.toStringAsFixed(0)}',
-            '${p.qty}',
-            _n(p.totalKg, 0),
-            p.notes
-          ]
-      ]),
-      h1('5. Tornillería y anclajes'),
-      table(['Elemento', 'Especificación', 'Ud.', 'Uso'], [
-        for (final b in d.bolts) [b.description, b.spec, '${b.qty}', b.use]
-      ]),
-      h1('6. Soldaduras'),
-      table(['Unión', 'Tipo', 'a (mm)', 'L/unión (mm)', 'Nº', 'Total (m)', 'Consumible (kg)', 'Proceso / posición'], [
-        for (final w in d.welds)
-          [
-            w.joint,
-            w.type,
-            w.throat.toStringAsFixed(0),
-            w.lengthPerJoint.toStringAsFixed(0),
-            '${w.count}',
-            _n(w.totalMeters),
-            _n(w.consumableKg, 2),
-            '${w.process} · ${w.position}'
-          ],
-        ['TOTAL', '', '', '', '', _n(d.weldMeters), _n(d.consumableKg, 2), ''],
-      ]),
-      pw.Text(
-          weldingHypothesis(d.spec.fab),
-          style: const pw.TextStyle(fontSize: 7.5)),
-      h1('7. Pedido de material y plan de corte'),
-      table(['Perfil', 'Pedido', 'Metros', 'kg aprox.', 'Merma', 'Retales útiles (mm)'], [
-        for (final st in d.stock)
-          [
-            st.profile.name,
-            st.orderText,
-            _n(st.purchasedMm / 1000, 1),
-            _n(st.purchasedKg, 0),
-            '${_n(st.wastePct, 1)} %',
-            st.remnants.isEmpty ? '-' : st.remnants.join(' / '),
-          ]
-      ]),
-      if (d.stock.isNotEmpty)
-        pw.Text(
-            'Sierra ${d.stock.first.settings.kerf} mm, despunte ${d.stock.first.settings.trim} mm por extremo, '
-            'retal útil desde ${d.stock.first.settings.minRemnant} mm. Plan de corte (barras iguales agrupadas):',
-            style: const pw.TextStyle(fontSize: 7.5)),
-      for (final st in d.stock)
-        for (final l in cutPlanLines(st))
-          pw.Text('${st.profile.name} · $l', style: const pw.TextStyle(fontSize: 7.5)),
-      h1('8. Secuencia de montaje'),
-      ...d.assembly.asMap().entries.map((e) => pw.Padding(
-          padding: const pw.EdgeInsets.only(bottom: 2),
-          child: pw.Text('${e.key + 1}. ${e.value}', style: const pw.TextStyle(fontSize: 8.5)))),
-      if (d.norms.isNotEmpty) ...[
-        h1('9. Normativa de referencia'),
-        ...d.norms.map((n) => pw.Bullet(text: '${n.code}: ${n.title}.', style: const pw.TextStyle(fontSize: 8))),
-        pw.Text('Resumen orientativo; consultar la edición vigente de cada norma (AENOR, BOE).',
-            style: const pw.TextStyle(fontSize: 7.5)),
+        {Finish finish = Finish.galvanizado, Uint8List? aiPhoto, Budget? budget, ProjectInfo info = const ProjectInfo()}) =>
+    buildSectionsPdf(
+      d,
+      [
+        for (final s in ProjectSection.values)
+          if (s != ProjectSection.presupuesto || budget != null) s
       ],
-    ],
-  ));
-
-  // Isométrica
-  doc.addPage(pw.Page(
-    pageFormat: PdfPageFormat.a4.landscape,
-    margin: const pw.EdgeInsets.all(20),
-    build: (ctx) => pw.Column(children: [
-      pw.Text('Vista isométrica con marcas de despiece', style: pw.TextStyle(font: bold, fontSize: 12)),
-      pw.Expanded(child: pw.Image(pw.MemoryImage(iso), fit: pw.BoxFit.contain)),
-    ]),
-  ));
-  // Planos CAD vectoriales (A3 a tamaño real)
-  addCadPages(doc, buildSheets(d), reg, bold);
-  return doc.save();
-}
-
-pw.Widget _kpi(String label, String value, pw.Font bold) => pw.Expanded(
-      child: pw.Container(
-        margin: const pw.EdgeInsets.only(right: 6),
-        padding: const pw.EdgeInsets.all(6),
-        decoration: pw.BoxDecoration(
-            border: pw.Border.all(color: PdfColors.grey400, width: 0.5),
-            borderRadius: pw.BorderRadius.circular(4)),
-        child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
-          pw.Text(label, style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey700)),
-          pw.Text(value, style: pw.TextStyle(font: bold, fontSize: 12)),
-        ]),
-      ),
+      finish: finish,
+      aiPhoto: aiPhoto,
+      budget: budget,
+      info: info,
     );
 
-Future<String> exportPdf(Design d, {Finish finish = Finish.galvanizado, Uint8List? aiPhoto}) async {
-  final bytes = await buildPdf(d, finish: finish, aiPhoto: aiPhoto);
+Future<String> exportPdf(Design d,
+    {Finish finish = Finish.galvanizado, Uint8List? aiPhoto, Budget? budget, ProjectInfo info = const ProjectInfo()}) async {
+  final bytes = await buildPdf(d, finish: finish, aiPhoto: aiPhoto, budget: budget, info: info);
   return saveAndShare(bytes, '${_slug(d)}.pdf', text: 'Proyecto Herrero');
 }
 
@@ -352,4 +143,43 @@ String dimsText(StructureSpec s) {
     for (final (k, v) in [(l, s.length), (w, s.width), (h, s.height)])
       if (!k.contains('no aplica') && v > 0) '${k.toLowerCase()} ${_n(v, 2)} m',
   ].join(' · ');
+}
+
+/// Exporta los apartados elegidos. Con [separate], un PDF por apartado
+/// (para entregar a cada uno solo lo suyo); si no, todos en un PDF.
+Future<List<String>> exportSections(Design d, List<ProjectSection> sections,
+    {bool separate = true,
+    Finish finish = Finish.galvanizado,
+    Uint8List? aiPhoto,
+    Budget? budget,
+    ProjectInfo info = const ProjectInfo(),
+    bool budgetDetail = true}) async {
+  final dir = await outputDir();
+  final base = _slug(d);
+  final files = <String>[];
+  Future<void> one(List<ProjectSection> ss, String name) async {
+    // un apartado cada vez: se libera la memoria del anterior antes de seguir
+    final bytes = await buildSectionsPdf(d, ss,
+        finish: finish, aiPhoto: aiPhoto, budget: budget, info: info, budgetDetail: budgetDetail);
+    final f = File('${dir.path}${Platform.pathSeparator}$name');
+    await f.writeAsBytes(bytes, flush: true);
+    files.add(f.path);
+  }
+
+  if (separate) {
+    for (final s in sections) {
+      await one([s], '${base}_${s.fileSuffix}.pdf');
+    }
+  } else {
+    await one(sections, '${base}_apartados.pdf');
+  }
+  if (Platform.isAndroid || Platform.isIOS) {
+    await SharePlus.instance.share(
+        ShareParams(files: [for (final f in files) XFile(f)], text: 'Proyecto Herrero', sharePositionOrigin: _shareOrigin()));
+  } else if (Platform.isWindows) {
+    await Process.run('explorer', ['/select,', files.first]);
+  } else if (Platform.isLinux) {
+    await Process.run('xdg-open', [dir.path]).catchError((_) => ProcessResult(0, 1, '', ''));
+  }
+  return files;
 }

@@ -1,5 +1,62 @@
 # Historial de versiones
 
+## 4.3.0 (2026-11-24)
+
+- **Gestor de proyectos**: guardar el proyecto (nombre, cliente, obra, notas), abrirlo, duplicarlo,
+  borrarlo, buscarlo y cambiar su estado (borrador, presupuestado, aceptado, en fabricación, en
+  montaje, terminado, descartado). Cada proyecto lleva su historial. Se guarda solo la ficha y el
+  texto pedido (unos kB) y el diseño se recalcula al abrir; la foto IA se guarda aparte.
+- **Presupuesto** (pestaña nueva): materiales según las barras del plan de corte, chapa con un 15 %
+  de recortes, tornillería y cerramientos; horas de fabricación, soldadura y montaje con tus
+  precios por hora y rendimientos ajustables; galvanizado o pintura; transporte, margen e IVA. Cada
+  línea dice de dónde sale su precio (factura, tarifa, web o fijado a mano, con proveedor, fecha y
+  distancia) y las que no tienen precio se marcan y no suman. PDF para el cliente o con detalle.
+- **Base de precios**: importar facturas y tarifas en PDF o foto (OCR local), con proveedor, CIF,
+  dirección, fecha, nº de factura y líneas con material reconocido (IPE, HEB, tubo, chapa,
+  tornillería, hilo, galvanizado…) y precio unitario neto con descuento. Solo se aceptan líneas en
+  las que cantidad × precio cuadra con el importe; todo se revisa antes de guardar.
+- **Ubicación y radio**: GPS (Android, Windows, Linux con GeoClue, iPhone) o población escrita; el
+  presupuesto solo usa proveedores dentro del radio y precios de los últimos meses elegidos, con
+  mediana, el más barato o el más reciente.
+- **Distribuidores cercanos** desde OpenStreetMap, con teléfono, web y correo cuando los hay;
+  «Pedir precio» abre un correo o SMS con el pedido de material del proyecto, y se pueden leer los
+  precios de la página de tarifas de un distribuidor si la publica.
+- **Apartados aislados**: resumen, cálculo, materiales, fabricación, soldadura, montaje, planos y
+  presupuesto, cada uno con su cabecera, su destinatario y su numeración; en un PDF o uno por
+  apartado.
+- **Memoria**: con menos de 6 GB de RAM (o si se elige en Modelos), los modelos de IA se cargan por
+  turnos según el paso del flujo (ficha, planos, foto, facturas): al cambiar de paso se cancelan los
+  que no tocan y se sueltan las cachés. Caché de imágenes limitada en el móvil y vaciado al avisar
+  el sistema de poca memoria. Los PDF por apartado solo generan las imágenes que usan.
+- **Linux** (x86-64, Ubuntu 22.04 LTS o posterior): app de escritorio y **TUI de terminal**
+  (`herrero-tui`) en `Herrero-linux-x64.tar.gz`, con ONNX Runtime 1.20.
+- **TUI de terminal**: petición en lenguaje natural, ficha «Lo que he entendido» con el origen de
+  cada dato, resultado por pestañas (resumen, despiece, comprobaciones con barras de η, uniones,
+  montaje, normativa) y exportación a CSV, DXF y memoria en Markdown. Pantalla «IA y GPU»
+  (Ctrl+G): motor, paquete CUDA, descarga de modelos y prueba de velocidad CPU frente a GPU.
+  También sin pantalla: `herrero-tui --calcular "…"`, `--gpu`, `--instalar-cuda`.
+- **NVIDIA CUDA en Linux** (p. ej. RTX 4050 Laptop de 6 GB): paquete descargable con ONNX
+  Runtime 1.20.1 GPU y las librerías de NVIDIA (cudart, cuBLAS, cuFFT, cuRAND, NVRTC, cuDNN 9),
+  que se precargan al arrancar porque LD_LIBRARY_PATH no puede cambiarse con el proceso en marcha.
+  Funciona sin escritorio (modo texto).
+- **La gráfica NVIDIA se despierta al arrancar** (Linux): si faltan `nvidia_uvm` o
+  `/dev/nvidia-uvm` (sin escritorio nadie los crea) se crean con `nvidia-modprobe`, y `cuInit`
+  saca la gráfica del reposo antes de la primera petición. Si no se puede, se avisa con los
+  comandos exactos para arreglarlo y la IA sigue en CPU.
+- CUDA afinado para gráficas de poca memoria: reserva que crece solo lo pedido, cuDNN por
+  heurística y sin espacio de trabajo máximo (`HERRERO_CUDA_MEM_MB` limita cada sesión).
+- DirectML (Windows) elige la gráfica de **alto rendimiento** en portátiles con dos gráficas
+  (antes podía usar la integrada).
+- `scripts/instalar-ubuntu.sh`: instala Herrero en Ubuntu LTS con el controlador NVIDIA headless,
+  arranque sin X11 e inicio de sesión automático en tty1 que abre la TUI. Con `--preparar` deja en
+  una carpeta o USB todo lo necesario (`.deb` del controlador y del firmware, paquete CUDA,
+  modelos) para instalar **sin conexión** con `--desde`.
+- **Cambiar de modo y reiniciar**: en la TUI, Ctrl+R (o «r» en «IA, GPU y sistema») reinicia con el
+  escritorio (X11); en la app de escritorio de Linux, el botón de terminal reinicia en modo TUI.
+  El instalador deja `herrero-modo` y una regla de sudo para hacerlo sin contraseña (si falta, la
+  app la pide con pkexec y la TUI muestra el comando).
+- La release incluye manual de usuario, documentación técnica y código fuente.
+
 ## 4.2.0 (2026-11-20)
 
 - **Gestor de modelos de IA** renovado: tarjeta «Instalados» con lo que ocupa cada modelo y el

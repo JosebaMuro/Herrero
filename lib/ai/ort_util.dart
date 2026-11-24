@@ -6,7 +6,7 @@ import 'package:onnxruntime/onnxruntime.dart';
 // ignore: implementation_imports
 import 'package:onnxruntime/src/bindings/onnxruntime_bindings_generated.dart' as bg;
 
-import 'accel.dart';
+import 'ort_core.dart';
 
 /// Lee [count] floats de un tensor (desde [offset]) sin pasar por listas anidadas.
 Float32List ortFloats(OrtValue v, int count, [int offset = 0]) {

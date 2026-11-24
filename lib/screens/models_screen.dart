@@ -6,6 +6,7 @@ import 'package:material_ui/material_ui.dart';
 import '../ai/accel.dart';
 import '../ai/engine_plan.dart';
 import '../ai/model_import.dart';
+import '../ai/model_gate.dart';
 import '../ai/model_manager.dart';
 import '../ai/onnx_inspect.dart';
 
@@ -329,6 +330,24 @@ class _ModelsScreenState extends State<ModelsScreen> {
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
             children: [
               _DeviceCard(dev: dev),
+              Card(
+                child: ListTile(
+                  leading: const Icon(Icons.memory),
+                  title: const Text('Carga de modelos'),
+                  subtitle: Text(ModelGate.instance.saving
+                      ? 'Por turnos: un modelo cada vez, según el paso (ficha, planos, foto, facturas)'
+                      : 'Varios modelos a la vez'),
+                  trailing: DropdownButton<MemoryMode>(
+                    value: ModelGate.instance.mode,
+                    items: [for (final m in MemoryMode.values) DropdownMenuItem(value: m, child: Text(m.label))],
+                    onChanged: (m) async {
+                      if (m == null) return;
+                      await ModelGate.instance.setMode(m);
+                      setState(() {});
+                    },
+                  ),
+                ),
+              ),
               if (_catalogError != null)
                 Card(
                   color: Theme.of(context).colorScheme.errorContainer,
@@ -714,7 +733,7 @@ class _AccelCardState extends State<_AccelCard> {
     return ListenableBuilder(
       listenable: packs,
       builder: (context, _) {
-        final restart = Platform.isWindows && packs.needsRestart(mgr.engine);
+        final restart = (Platform.isWindows || Platform.isLinux) && packs.needsRestart(mgr.engine);
         final missing = switch (mgr.engine) {
           AiEngine.cuda => !packs.installed('cuda'),
           AiEngine.openvino => !packs.installed('openvino'),
@@ -748,7 +767,9 @@ class _AccelCardState extends State<_AccelCard> {
               if (missing)
                 Padding(
                   padding: const EdgeInsets.only(top: 6),
-                  child: Text('Descarga su paquete aquí abajo; mientras tanto se usa DirectML o la CPU.',
+                  child: Text(
+                      'Descarga su paquete aquí abajo; mientras tanto se usa '
+                      '${Platform.isWindows ? 'DirectML o la CPU' : 'la CPU'}.',
                       style: t.bodySmall?.copyWith(color: cs.error)),
                 ),
               if (restart)
@@ -761,12 +782,22 @@ class _AccelCardState extends State<_AccelCard> {
                     subtitle: Text('La IA ya se ha usado en esta sesión con otro motor.'),
                   ),
                 ),
-              if (Platform.isWindows) ...[
+              if (Platform.isLinux && packs.wake != null && packs.wake!.state != GpuWakeState.notNvidia)
+                _wakeCard(packs.wake!),
+              if (Platform.isWindows || Platform.isLinux) ...[
                 const SizedBox(height: 14),
                 Text('Paquetes opcionales', style: t.labelLarge),
                 const SizedBox(height: 4),
                 for (final p in gpuPacks) _packTile(p),
                 const SizedBox(height: 8),
+              ],
+              if (Platform.isLinux)
+                Text(
+                  'En Linux la IA usa CUDA con gráficas NVIDIA (también sin escritorio, en modo texto) y la CPU '
+                  'con el resto. Herrero despierta la gráfica al arrancar.',
+                  style: t.bodySmall,
+                ),
+              if (Platform.isWindows) ...[
                 Text(
                   'AMD: ROCm y MIGraphX solo existen para Linux en ONNX Runtime, así que en Windows las gráficas '
                   'AMD (Radeon) usan DirectML. Vulkan no es un motor de ONNX Runtime; DirectML cumple ese papel '
@@ -789,11 +820,40 @@ class _AccelCardState extends State<_AccelCard> {
     );
   }
 
+  Widget _wakeCard(GpuWake w) {
+    final cs = Theme.of(context).colorScheme;
+    return Card(
+      color: w.ok ? cs.secondaryContainer : cs.errorContainer,
+      margin: const EdgeInsets.only(top: 10),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Icon(w.ok ? Icons.check_circle_outline : Icons.warning_amber),
+            const SizedBox(width: 8),
+            Expanded(child: Text(w.message)),
+          ]),
+          if (packs.nvidia.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(packs.nvidia.join(' · '), style: Theme.of(context).textTheme.bodySmall),
+            ),
+          if (w.fix.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            const Text('Para arreglarlo, en una terminal:'),
+            const SizedBox(height: 4),
+            SelectableText(w.fix.join('\n'), style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
+          ],
+        ]),
+      ),
+    );
+  }
+
   Widget _packTile(GpuPack p) {
     final st = packs.status[p.id] ?? ModelStatus(DlState.notInstalled);
     final size = packs.sizeOf(p);
     final fit = switch (p.id) {
-      'cuda' => hasNvidia(packs.gpus),
+      'cuda' => hasNvidia(packs.gpus) || packs.nvidia.isNotEmpty,
       'openvino' => hasIntelGpu(packs.gpus),
       _ => true,
     };

@@ -31,7 +31,9 @@
 	<key>UIFileSharingEnabled</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
-	<string>Para hacer una foto a un plano o a un croquis y leerlo.</string>
+	<string>Para hacer una foto a un plano, un croquis o una factura y leerlo.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Para buscar precios y distribuidores de material cerca de ti.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Para elegir la foto de un plano o de un croquis.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>

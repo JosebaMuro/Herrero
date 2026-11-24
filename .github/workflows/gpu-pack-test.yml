@@ -1,10 +1,10 @@
-name: Probar paquetes de aceleración (Windows)
+name: Probar paquetes de aceleración (Windows y Linux)
 
 on:
   workflow_dispatch:
   push:
-    branches: [claude/project-thread-7cfq84]
-    paths: [test/accel_test.dart, lib/ai/accel.dart, lib/ai/model_manager.dart, test/gpu_pack_test.dart, .github/workflows/gpu-pack-test.yml]
+    branches: [claude/project-thread-7cfq84, claude/cuda-linux-tui]
+    paths: [test/accel_test.dart, lib/ai/accel.dart, lib/ai/ort_core.dart, lib/ai/model_manager.dart, scripts/ort_loader.dart, scripts/ort_runtime.py, test/gpu_pack_test.dart, .github/workflows/gpu-pack-test.yml]
 
 jobs:
   pack:
@@ -37,3 +37,33 @@ jobs:
           $env:HERRERO_ORT_ENGINE = '${{ matrix.pack }}'
           $env:HERRERO_ORT_EXPECT = '${{ matrix.provider }}'
           flutter test test/accel_test.dart
+
+  linux-cuda:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.50.0"
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: python3 scripts/ort_runtime.py linux
+      - name: Descargar e instalar el paquete CUDA (Linux)
+        env:
+          HERRERO_PACK_TEST: cuda
+        run: flutter test test/gpu_pack_test.dart
+      - name: Cargar el ONNX Runtime CUDA (precarga de cuDNN/cuBLAS) y ejecutar (sin GPU vuelve a CPU)
+        env:
+          HERRERO_ORT_TEST: "1"
+          HERRERO_ORT_ENGINE: cuda
+          HERRERO_ORT_EXPECT: CUDAExecutionProvider
+        run: |
+          export HERRERO_ORT_DIR="$HOME/.local/share/herrero/gpu/cuda"
+          ls -l "$HERRERO_ORT_DIR"
+          du -sh "$HERRERO_ORT_DIR"
+          # Sin GPU, el proveedor CUDA puede hacer saltar al proceso de pruebas al cerrarse
+          # (después de las pruebas): se da por buena la ejecución si todas pasan.
+          set +e
+          flutter test test/accel_test.dart 2>&1 | tee accel.log
+          grep -qE "[0-9]+ tests passed\.$" accel.log || { echo "::error::fallan pruebas de aceleración"; exit 1; }
