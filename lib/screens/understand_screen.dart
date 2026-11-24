@@ -2,6 +2,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../ai/comprehension.dart';
 import '../ai/local_text.dart';
+import '../ai/model_gate.dart';
 import '../ai/model_manager.dart';
 import '../engine/designer.dart';
 import '../engine/model.dart';
@@ -35,6 +36,7 @@ class _UnderstandScreenState extends State<UnderstandScreen> {
   @override
   void initState() {
     super.initState();
+    ModelGate.instance.enter(WorkflowStep.comprension);
     u = understand(widget.prompt);
     _startAi();
   }

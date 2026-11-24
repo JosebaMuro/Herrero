@@ -1,6 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- Necesario en la versión de release para descargar los modelos IA (OCR, foto IA, visión). -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- ubicación aproximada para buscar precios y distribuidores cercanos -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <application
         android:label="herrero"
         android:name="${applicationName}"

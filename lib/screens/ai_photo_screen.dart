@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 
 import 'package:material_ui/material_ui.dart';
 
+import '../ai/model_gate.dart';
 import '../ai/model_manager.dart';
 import '../ai/photo_prompt.dart';
 import '../ai/sd_pipeline.dart';
@@ -77,6 +78,7 @@ class _AiPhotoScreenState extends State<AiPhotoScreen> {
   @override
   void initState() {
     super.initState();
+    ModelGate.instance.enter(WorkflowStep.foto);
     _seed = DateTime.now().millisecondsSinceEpoch & 0x7fffffff;
     _prepare();
   }
@@ -128,6 +130,8 @@ class _AiPhotoScreenState extends State<AiPhotoScreen> {
         if (mounted) setState(() => _progress = p);
       });
       _job = job;
+      final release = ModelGate.instance.hold(ModelTask.photo, job.cancel);
+      job.future.whenComplete(release).ignore();
       final res = await job.future;
       final png = await _rgbaToPng(res.rgba, res.size);
       if (!mounted) return;

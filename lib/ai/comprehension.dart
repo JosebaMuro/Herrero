@@ -6,6 +6,7 @@ import '../engine/intents.dart';
 import '../engine/model.dart';
 import '../engine/understanding.dart';
 import 'local_text.dart';
+import 'model_gate.dart';
 import 'model_manager.dart';
 
 /// Textos de referencia de cada tipología para los embeddings.
@@ -43,7 +44,10 @@ int _fnv(String s) {
 
 /// Comprensión local de la petición con los modelos instalados.
 class Comprehension {
-  Comprehension._();
+  Comprehension._() {
+    // con poca RAM, el índice se suelta al salir de la ficha
+    ModelGate.instance.onDropCaches(() => _index = null);
+  }
   static final instance = Comprehension._();
 
   List<(StructureType, Float32List)>? _index;
@@ -68,7 +72,7 @@ class Comprehension {
         return _index!;
       }
     } catch (_) {}
-    final v = await embedTexts(EmbedRequest(dir, [for (final p in passages) p.$2], threads: threads, engine: ModelManager.instance.engineFor(ModelTask.understand)));
+    final v = await ModelGate.instance.run(ModelTask.understand, () => embedTexts(EmbedRequest(dir, [for (final p in passages) p.$2], threads: threads, engine: ModelManager.instance.engineFor(ModelTask.understand))));
     _index = [for (var i = 0; i < passages.length; i++) (passages[i].$1, v[i])];
     _indexKey = key;
     try {
@@ -87,7 +91,7 @@ class Comprehension {
     final dir = await _dir();
     final threads = (mgr.device?.recommendedThreads ?? 4).clamp(1, 4);
     final index = await _loadIndex(dir, threads);
-    final q = (await embedTexts(EmbedRequest(dir, ['query: ${prompt.trim()}'], threads: threads, engine: mgr.engineFor(ModelTask.understand)))).first;
+    final q = (await ModelGate.instance.run(ModelTask.understand, () => embedTexts(EmbedRequest(dir, ['query: ${prompt.trim()}'], threads: threads, engine: mgr.engineFor(ModelTask.understand))))).first;
     return rankTypes(q, index);
   }
 
@@ -95,7 +99,7 @@ class Comprehension {
   Future<LlmJob?> read(String prompt, StructureType type, void Function(String) onPartial) async {
     final mgr = ModelManager.instance;
     if (!mgr.reasonReady) return null;
-    return startLlm(
+    final job = startLlm(
       LlmRequest(
         modelDir: await _dir(),
         prefix: mgr.reasoner.files.first.split('_').first,
@@ -105,5 +109,8 @@ class Comprehension {
       ),
       onPartial,
     );
+    final release = ModelGate.instance.hold(ModelTask.reason, job.cancel);
+    job.future.whenComplete(release).ignore();
+    return job;
   }
 }

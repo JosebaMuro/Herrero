@@ -2,9 +2,14 @@ import 'package:material_ui/material_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../engine/autocomplete.dart';
+import '../ai/model_gate.dart';
+import '../services/price_store.dart';
+import '../services/project_store.dart';
 import 'catalog_screen.dart';
 import 'models_screen.dart';
 import 'plan_import_screen.dart';
+import 'prices_screen.dart';
+import 'projects_screen.dart';
 import 'understand_screen.dart';
 
 const examples = [
@@ -36,8 +41,25 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    ModelGate.instance.enter(WorkflowStep.inicio);
     _loadHistory();
+    _loadProjects();
     _ctrl.addListener(_onEdit);
+  }
+
+  List<ProjectSummary> _projects = const [];
+
+  Future<void> _loadProjects() async {
+    try {
+      final st = await projectStore();
+      if (mounted) setState(() => _projects = st.list().take(5).toList());
+    } catch (_) {}
+  }
+
+  Future<void> _go(Widget screen) async {
+    await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => screen));
+    ModelGate.instance.enter(WorkflowStep.inicio);
+    _loadProjects();
   }
 
   @override
@@ -93,7 +115,7 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       await _saveHistory(p);
       if (!mounted) return;
-      await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => UnderstandScreen(prompt: p)));
+      await _go(UnderstandScreen(prompt: p));
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo calcular: $e')));
@@ -115,6 +137,16 @@ class _HomeScreenState extends State<HomeScreen> {
         ]),
         actions: [
           IconButton(
+            tooltip: 'Proyectos guardados',
+            icon: const Icon(Icons.folder_open),
+            onPressed: () => _go(const ProjectsScreen()),
+          ),
+          IconButton(
+            tooltip: 'Precios, facturas y proveedores',
+            icon: const Icon(Icons.euro),
+            onPressed: () => _go(const PricesScreen()),
+          ),
+          IconButton(
             tooltip: 'Importar plano (PDF o imagen)',
             icon: const Icon(Icons.upload_file),
             onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const PlanImportScreen())),
@@ -135,11 +167,13 @@ class _HomeScreenState extends State<HomeScreen> {
             onPressed: () => showAboutDialog(
               context: context,
               applicationName: 'Herrero',
-              applicationVersion: '3.4.1',
+              applicationVersion: '4.3.0',
               children: const [
                 Text('Predimensionado de estructuras metálicas según CTE DB-SE-A y Eurocódigo 3, '
                     'con despiece, soldaduras, planos tipo CAD (PDF y DXF), modelo 3D para SketchUp, '
-                    'render, lectura de planos y croquis y comprensión de la petición con IA local.\n\n'
+                    'render, lectura de planos y croquis y comprensión de la petición con IA local, '
+                    'gestor de proyectos y presupuesto con precios de tus facturas y distribuidores cercanos.\n\n'
+                    'Datos de distribuidores: © colaboradores de OpenStreetMap (ODbL).\n\n'
                     'Los resultados son orientativos y deben ser validados por un técnico competente.'),
               ],
             ),
@@ -207,6 +241,28 @@ class _HomeScreenState extends State<HomeScreen> {
                   icon: const Icon(Icons.upload_file),
                   label: const Text('Importar plano (PDF o imagen)'),
                 ),
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  onPressed: _busy ? null : () => _go(const ProjectsScreen()),
+                  icon: const Icon(Icons.folder_open),
+                  label: const Text('Proyectos guardados'),
+                ),
+                if (_projects.isNotEmpty) ...[
+                  const SizedBox(height: 20),
+                  Text('Últimos proyectos', style: Theme.of(context).textTheme.titleMedium),
+                  for (final p in _projects)
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.construction),
+                      title: Text(p.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+                      subtitle: Text([if (p.client.isNotEmpty) p.client, p.status.label].join(' · ')),
+                      onTap: () async {
+                        await openProject(context, p.id);
+                        ModelGate.instance.enter(WorkflowStep.inicio);
+                        _loadProjects();
+                      },
+                    ),
+                ],
                 const SizedBox(height: 20),
                 Text('Ejemplos', style: Theme.of(context).textTheme.titleMedium),
                 const SizedBox(height: 6),

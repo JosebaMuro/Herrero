@@ -6,6 +6,7 @@ import 'package:material_ui/material_ui.dart';
 import '../ai/accel.dart';
 import '../ai/engine_plan.dart';
 import '../ai/model_import.dart';
+import '../ai/model_gate.dart';
 import '../ai/model_manager.dart';
 import '../ai/onnx_inspect.dart';
 
@@ -329,6 +330,24 @@ class _ModelsScreenState extends State<ModelsScreen> {
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
             children: [
               _DeviceCard(dev: dev),
+              Card(
+                child: ListTile(
+                  leading: const Icon(Icons.memory),
+                  title: const Text('Carga de modelos'),
+                  subtitle: Text(ModelGate.instance.saving
+                      ? 'Por turnos: un modelo cada vez, según el paso (ficha, planos, foto, facturas)'
+                      : 'Varios modelos a la vez'),
+                  trailing: DropdownButton<MemoryMode>(
+                    value: ModelGate.instance.mode,
+                    items: [for (final m in MemoryMode.values) DropdownMenuItem(value: m, child: Text(m.label))],
+                    onChanged: (m) async {
+                      if (m == null) return;
+                      await ModelGate.instance.setMode(m);
+                      setState(() {});
+                    },
+                  ),
+                ),
+              ),
               if (_catalogError != null)
                 Card(
                   color: Theme.of(context).colorScheme.errorContainer,

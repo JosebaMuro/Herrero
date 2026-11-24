@@ -9,6 +9,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:printing/printing.dart';
 
+import '../ai/model_gate.dart';
 import '../ai/model_manager.dart';
 import '../ai/vlm.dart';
 import '../plans/ocr_engine.dart';
@@ -44,6 +45,7 @@ class _PlanImportScreenState extends State<PlanImportScreen> {
   @override
   void initState() {
     super.initState();
+    ModelGate.instance.enter(WorkflowStep.planos);
     mgr.load();
   }
 
@@ -84,6 +86,8 @@ class _PlanImportScreenState extends State<PlanImportScreen> {
         VlmRequest(modelDir: dir, prefix: mgr.vlmPrefix, rgba: r.$1, width: r.$2, height: r.$3, threads: threads, engine: mgr.engineFor(ModelTask.sketch)),
         (partial) => mounted ? setState(() => _seeing = partial) : null);
     _job = job;
+    final release = ModelGate.instance.hold(ModelTask.sketch, job.cancel);
+    job.future.whenComplete(release).ignore();
     try {
       final res = await job.future;
       if (!mounted) return;
@@ -156,7 +160,7 @@ class _PlanImportScreenState extends State<PlanImportScreen> {
     _say('Leyendo textos y cotas (OCR local)…');
     final dir = (await mgr.dir(mgr.ocr.subdir)).path;
     final threads = (Platform.numberOfProcessors - 1).clamp(1, 6);
-    final toks = await runOcr(OcrRequest(modelDir: dir, rgba: rgba, width: w, height: h, threads: threads, engine: mgr.engineFor(ModelTask.plans)));
+    final toks = await ModelGate.instance.run(ModelTask.plans, () => runOcr(OcrRequest(modelDir: dir, rgba: rgba, width: w, height: h, threads: threads, engine: mgr.engineFor(ModelTask.plans))));
     return PlanReading(toks, source, pageWidth: w.toDouble(), pageHeight: h.toDouble());
   }
 

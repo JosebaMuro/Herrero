@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -20,25 +21,58 @@ import '../cad/cad_painter.dart';
 import '../cad/sheets.dart';
 import '../views/render_view.dart';
 import '../views/zrender_view.dart';
+import '../ai/model_gate.dart';
+import '../engine/budget.dart';
+import '../services/price_store.dart';
+import '../services/project_store.dart';
 import 'ai_photo_screen.dart';
+import 'budget_tab.dart';
+import 'projects_screen.dart';
 import 'models_screen.dart';
 
 String _n(double v, [int d = 1]) => v.toStringAsFixed(d).replaceAll('.', ',');
 
 class ProjectScreen extends StatefulWidget {
   final Design design;
-  const ProjectScreen({super.key, required this.design});
+
+  /// Proyecto guardado del que viene (null si aún no se ha guardado).
+  final ProjectRecord? record;
+  const ProjectScreen({super.key, required this.design, this.record});
   @override
   State<ProjectScreen> createState() => _ProjectScreenState();
 }
 
 class _ProjectScreenState extends State<ProjectScreen> with SingleTickerProviderStateMixin {
   late Design d = widget.design;
-  late final TabController _tabs = TabController(length: 7, vsync: this);
+  late final TabController _tabs = TabController(length: 8, vsync: this);
   int? _highlight;
-  late Finish _finish = finishFromSpec(d.spec.finish);
+  late Finish _finish = widget.record == null
+      ? finishFromSpec(d.spec.finish)
+      : Finish.values.firstWhere((f) => f.name == widget.record!.finish, orElse: () => finishFromSpec(d.spec.finish));
   bool _exporting = false;
   Uint8List? _aiPhoto;
+  late ProjectRecord? _rec = widget.record;
+  Budget? _budget;
+  bool _dirty = false;
+
+  ProjectBudgetSettings get _budgetSettings =>
+      _rec == null ? (_unsavedBudget ?? const ProjectBudgetSettings()) : ProjectBudgetSettings.fromJson(_rec!.budget);
+  ProjectBudgetSettings? _unsavedBudget;
+
+  ProjectInfo get _info => ProjectInfo(name: _rec?.name ?? '', client: _rec?.client ?? '', site: _rec?.site ?? '');
+
+  @override
+  void initState() {
+    super.initState();
+    ModelGate.instance.enter(WorkflowStep.proyecto);
+    final r = _rec;
+    if (r != null) {
+      projectStore().then((st) {
+        final ph = st.loadPhoto(r.id);
+        if (ph != null && mounted) setState(() => _aiPhoto = ph);
+      });
+    }
+  }
 
   void _recalc(StructureSpec s) {
     setState(() {
@@ -46,12 +80,94 @@ class _ProjectScreenState extends State<ProjectScreen> with SingleTickerProvider
       _highlight = null;
       _aiPhoto = null;
     });
+    if (_rec != null) {
+      _rec!
+        ..spec = s
+        ..log('Parámetros ajustados y recalculado');
+      _autosave();
+    }
+  }
+
+  /// Guarda el proyecto si ya existe (tras recalcular, presupuestar…).
+  Future<void> _autosave() async {
+    final r = _rec;
+    if (r == null) {
+      setState(() => _dirty = true);
+      return;
+    }
+    r
+      ..finish = _finish.name
+      ..budgetTotal = _budget?.base;
+    (await projectStore()).save(r, kg: d.steelKg);
+    if (mounted) setState(() => _dirty = false);
+  }
+
+  Future<void> _save() async {
+    if (_rec != null) {
+      _rec!.log('Guardado');
+      await _autosave();
+      _toast('Proyecto guardado');
+      return;
+    }
+    final r = ProjectStore.fromDesign(d, finish: _finish.name);
+    final ok = await editProjectInfo(context, r, title: 'Guardar proyecto');
+    if (!ok) return;
+    r.budget = (_unsavedBudget ?? const ProjectBudgetSettings()).toJson();
+    final st = await projectStore();
+    st.save(r, kg: d.steelKg);
+    if (_aiPhoto != null) st.savePhoto(r.id, _aiPhoto!);
+    setState(() {
+      _rec = r;
+      _dirty = false;
+    });
+    _toast('Proyecto «${r.name}» guardado');
+  }
+
+  Future<void> _editInfo() async {
+    final r = _rec;
+    if (r == null) return _save();
+    if (await editProjectInfo(context, r)) {
+      r.log('Datos del proyecto editados');
+      await _autosave();
+      setState(() {});
+    }
+  }
+
+  Future<void> _exportSections() async {
+    final picked = await pickSections(context, hasBudget: _budget != null);
+    if (picked == null) return;
+    setState(() => _exporting = true);
+    try {
+      final files = await exportSections(d, picked.$1,
+          separate: picked.$2, finish: _finish, aiPhoto: _aiPhoto, budget: _budget, info: _info, budgetDetail: picked.$3);
+      _rec?.log('Exportados apartados: ${picked.$1.map((s) => s.label).join(', ')}');
+      if (_rec != null) await _autosave();
+      _toast(files.length == 1 ? 'Guardado en ${files.first}' : '${files.length} PDF guardados en ${File(files.first).parent.path}');
+    } catch (e) {
+      _toast('Error al exportar: $e');
+    } finally {
+      if (mounted) setState(() => _exporting = false);
+    }
+  }
+
+  Future<void> _printBudget() async {
+    final b = _budget;
+    if (b == null) return;
+    await Printing.layoutPdf(
+        onLayout: (_) => buildSectionsPdf(d, const [ProjectSection.presupuesto], budget: b, info: _info, finish: _finish),
+        name: 'Presupuesto ${_info.name}');
+    if (_rec != null && _rec!.status == ProjectStatus.borrador) {
+      _rec!
+        ..status = ProjectStatus.presupuestado
+        ..log('Presupuesto impreso: ${eur(b.base)} + IVA');
+      await _autosave();
+    }
   }
 
   Future<void> _exportPdf() async {
     setState(() => _exporting = true);
     try {
-      final path = await exportPdf(d, finish: _finish, aiPhoto: _aiPhoto);
+      final path = await exportPdf(d, finish: _finish, aiPhoto: _aiPhoto, budget: _budget, info: _info);
       _toast('PDF guardado en $path');
     } catch (e) {
       _toast('Error al exportar: $e');
@@ -61,7 +177,8 @@ class _ProjectScreenState extends State<ProjectScreen> with SingleTickerProvider
   }
 
   Future<void> _printPdf() async {
-    await Printing.layoutPdf(onLayout: (_) => buildPdf(d, finish: _finish, aiPhoto: _aiPhoto), name: 'Herrero');
+    await Printing.layoutPdf(
+        onLayout: (_) => buildPdf(d, finish: _finish, aiPhoto: _aiPhoto, budget: _budget, info: _info), name: 'Herrero');
   }
 
   Future<void> _exportCsv() async {
@@ -103,8 +220,16 @@ class _ProjectScreenState extends State<ProjectScreen> with SingleTickerProvider
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(d.spec.type.label, overflow: TextOverflow.ellipsis),
+        title: InkWell(
+          onTap: _editInfo,
+          child: Text(_rec?.name ?? d.spec.type.label, overflow: TextOverflow.ellipsis),
+        ),
         actions: [
+          IconButton(
+            tooltip: _rec == null ? 'Guardar proyecto' : (_dirty ? 'Guardar cambios' : 'Guardado'),
+            icon: Icon(_rec == null || _dirty ? Icons.save_outlined : Icons.cloud_done_outlined),
+            onPressed: _save,
+          ),
           IconButton(
             tooltip: 'Ajustar parámetros',
             icon: const Icon(Icons.tune),
@@ -121,6 +246,7 @@ class _ProjectScreenState extends State<ProjectScreen> with SingleTickerProvider
               onSelected: (v) {
                 if (v == 'pdf') _exportPdf();
                 if (v == 'print') _printPdf();
+                if (v == 'sections') _exportSections();
                 if (v == 'csv') _exportCsv();
                 if (const {'cadpdf', 'cadpdfbw', 'dxf2d', 'dxf3d', 'dae'}.contains(v)) _exportCad(v);
                 if (v == 'models') {
@@ -130,6 +256,7 @@ class _ProjectScreenState extends State<ProjectScreen> with SingleTickerProvider
               itemBuilder: (_) => const [
                 PopupMenuItem(value: 'pdf', child: ListTile(leading: Icon(Icons.picture_as_pdf), title: Text('Proyecto completo (PDF)'))),
                 PopupMenuItem(value: 'print', child: ListTile(leading: Icon(Icons.print), title: Text('Imprimir / vista previa'))),
+                PopupMenuItem(value: 'sections', child: ListTile(leading: Icon(Icons.splitscreen), title: Text('Apartados por separado (PDF)'))),
                 PopupMenuItem(value: 'csv', child: ListTile(leading: Icon(Icons.table_chart), title: Text('Despiece (CSV / Excel)'))),
                 PopupMenuDivider(),
                 PopupMenuItem(value: 'cadpdf', child: ListTile(leading: Icon(Icons.architecture), title: Text('Planos CAD A3 (PDF)'))),
@@ -154,6 +281,7 @@ class _ProjectScreenState extends State<ProjectScreen> with SingleTickerProvider
             Tab(icon: Icon(Icons.architecture), text: 'Planos'),
             Tab(icon: Icon(Icons.engineering_outlined), text: 'Montaje'),
             Tab(icon: Icon(Icons.photo_camera_outlined), text: 'Render'),
+            Tab(icon: Icon(Icons.euro), text: 'Presupuesto'),
           ],
         ),
       ),
@@ -173,12 +301,44 @@ class _ProjectScreenState extends State<ProjectScreen> with SingleTickerProvider
           _RenderTab(
             d: d,
             finish: _finish,
-            onFinish: (f) => setState(() => _finish = f),
+            onFinish: (f) {
+              setState(() => _finish = f);
+              if (_rec != null) _autosave();
+            },
             hasAiPhoto: _aiPhoto != null,
             onAiPhoto: (png) {
               setState(() => _aiPhoto = png);
+              final r = _rec;
+              if (r != null) {
+                projectStore().then((st) => st.savePhoto(r.id, png));
+                r.log('Foto IA generada');
+                _autosave();
+              }
               _toast('La foto IA se usará como portada del PDF.');
             },
+          ),
+          BudgetTab(
+            d: d,
+            settings: _budgetSettings,
+            projectName: _info.name,
+            site: _info.site,
+            onSettings: (bs) {
+              setState(() {
+                if (_rec != null) {
+                  _rec!.budget = bs.toJson();
+                } else {
+                  _unsavedBudget = bs;
+                }
+              });
+              _rec?.log('Presupuesto ajustado');
+              _autosave();
+            },
+            onBudget: (b) {
+              final changed = _budget == null || (_budget!.base - b.base).abs() > 0.005;
+              _budget = b;
+              if (changed && _rec != null && _rec!.budgetTotal != b.base) _autosave();
+            },
+            onPrint: _printBudget,
           ),
         ],
       ),
