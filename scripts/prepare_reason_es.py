@@ -3,9 +3,11 @@
 - jinaes: jina-embeddings-v2-base-es (Jina AI, Apache-2.0). Embeddings
   bilingües castellano-inglés entrenados sobre todo con texto en español, en
   lugar del multilingual-e5-small (100 idiomas). int8, 162 MB.
-- smollm3: SmolLM3-3B (Hugging Face, Apache-2.0). LLM de 3B con modo de
-  razonamiento (<think>) y el castellano entre sus seis idiomas principales.
-  Pesos a 4 bits (MatMulNBits), ~2,9 GB, para PC.
+- qwen3think: Qwen3-4B-Thinking-2507 (Alibaba Qwen, Apache-2.0). LLM de 4B que
+  razona (<think>) antes de responder; se le obliga a razonar en castellano.
+  Pesos a 4 bits (MatMulNBits), ~2,9 GB, para PC. Se comparó con SmolLM3-3B
+  (castellano entre sus idiomas principales), que se atascaba repitiendo y no
+  seguía la ficha: queda como candidato de prueba (--eval).
 
 Descarga de Hugging Face los ONNX de transformers.js, los comprueba con
 ONNX Runtime 1.20 (el de la app), compara los embeddings con e5-small sobre
@@ -29,7 +31,7 @@ CHUNK = 1_900_000_000
 
 EMBED = ('jinaes', 'jinaai/jina-embeddings-v2-base-es', 'onnx/model_quantized.onnx')
 E5 = ('e5s', 'Xenova/multilingual-e5-small', 'onnx/model_quantized.onnx')
-LLM = ('smollm3', 'HuggingFaceTB/SmolLM3-3B-ONNX', 'onnx/model_q4.onnx')
+LLM = ('qwen3think', 'onnx-community/Qwen3-4B-Thinking-2507-ONNX', 'onnx/model_q4.onnx')
 
 TOKENIZER_TESTS = [
     'Marquesina para 2 coches de 5,5 x 5 m y 2,4 m de alto, panel sándwich, galvanizada',
@@ -257,8 +259,12 @@ SYSTEM = ('Eres el asistente de una oficina técnica de estructuras metálicas. 
           'Campos: largo_m, ancho_m, alto_m (metros); cubierta (panel sándwich, chapa grecada, policarbonato, teja, '
           'vidrio, tramex o sin cubierta); acero (S235JR, S275JR, S355JR, corten, inoxidable o aluminio); acabado '
           '(galvanizado, pintado o lacado); ubicacion (ciudad o provincia); uso (para qué es); carga_kg_m2; niveles.\n'
-          'Antes de responder, razona en castellano y en pocas líneas: qué medida es cada número '
-          '(largo, ancho, alto, luz, separación), las unidades y qué dato no aparece. Luego escribe solo la ficha JSON.')
+          'Antes de responder, razona en castellano y en pocas líneas: qué medida es cada número, '
+          'las unidades y qué dato no aparece. En naves y pórticos la luz es el ancho_m y el fondo o la longitud '
+          'es el largo_m; alto_m es la altura libre o al alero. Luego escribe solo la ficha JSON.')
+
+# Comienzo forzado del razonamiento: así piensa en castellano y dato a dato.
+THINK_START = 'Razono en castellano, dato a dato:\n-'
 
 # Igual que llmExamples de lib/engine/understanding.dart
 EXAMPLES = [
@@ -271,13 +277,14 @@ EXAMPLES = [
 ]
 
 
-def think_chat(prompt, tipo):
-    """Igual que llmThinkChat de lib/engine/understanding.dart (SmolLM3 / Qwen3 con razonamiento)."""
-    s = (f'<|im_start|>system\n## Metadata\n\nReasoning Mode: /think\n\n## Custom Instructions\n\n{SYSTEM}\n\n'
-         '<|im_end|>\n')
+def think_chat(prompt, tipo, smol=False):
+    """Igual que llmThinkChat de lib/engine/understanding.dart (Qwen3 con razonamiento).
+    [smol]: cabecera de sistema de SmolLM3 (solo para comparar)."""
+    head = '## Metadata\n\nReasoning Mode: /think\n\n## Custom Instructions\n\n' if smol else ''
+    s = f'<|im_start|>system\n{head}{SYSTEM}<|im_end|>\n'
     for q, a in EXAMPLES:
         s += f'<|im_start|>user\nPetición: {q}<|im_end|>\n<|im_start|>assistant\n{a}<|im_end|>\n'
-    return s + f'<|im_start|>user\nPetición: {prompt}<|im_end|>\n<|im_start|>assistant\n<think>\n'
+    return s + f'<|im_start|>user\nPetición: {prompt}<|im_end|>\n<|im_start|>assistant\n<think>\n{THINK_START}'
 
 
 class Llm:
@@ -348,14 +355,14 @@ class Llm:
                 'tok_s': round((len(thought) + len(answer)) / max(dt - prefill, 1e-3), 1)}
 
 
-def check_llm(prefix, out=OUT):
+def check_llm(prefix, out=OUT, smol=False):
     llm = Llm(prefix, out)
     print(prefix, 'capas', llm.L, 'kv', llm.H, 'head_dim', llm.D, 'eos', llm.eos, '</think>', llm.think_end)
     refs = []
     for tipo, p in LLM_CASES:
         seed = '{"tipo": "%s", "' % tipo
-        r = llm.generate(think_chat(p, tipo), after_think=seed)
-        print(f'\n=== {p}\n--- razonamiento ({len(r["thought_ids"])} tokens):\n{r["thought"]}\n--- ficha: {r["answer"]}')
+        r = llm.generate(think_chat(p, tipo, smol), after_think=seed)
+        print(f'\n=== {p}\n--- razonamiento ({len(r["thought_ids"])} tokens):\n{THINK_START}{r["thought"]}\n--- ficha: {r["answer"]}')
         print(f'    prompt {len(r["prompt_ids"])} tokens en {r["prefill_s"]} s; total {r["total_s"]} s; {r["tok_s"]} tokens/s')
         try:
             j = json.loads(r['answer'].replace(',}', '}'))
@@ -372,12 +379,12 @@ def eval_candidate(repo, onnx_path='onnx/model_q4.onnx'):
     out = 'out_eval'
     os.makedirs(out, exist_ok=True)
     fetch('cand', repo, onnx_path, out=out)
-    check_llm('cand', out)
+    check_llm('cand', out, smol='SmolLM3' in repo)
 
 
 def main():
     if len(sys.argv) > 2 and sys.argv[1] == '--eval':
-        eval_candidate(sys.argv[2])
+        eval_candidate(*sys.argv[2:4])
         return
     os.makedirs(OUT, exist_ok=True)
     info = {}
@@ -392,7 +399,7 @@ def main():
     for prefix, repo, path in (EMBED, LLM):
         print(f'\n### {prefix} ({repo})')
         fetch(prefix, repo, path)
-        info[prefix] = check_embed(prefix) if prefix == 'jinaes' else check_llm(prefix)
+        info[prefix] = check_embed(prefix) if prefix == 'jinaes' else {**check_llm(prefix), 'think_start': THINK_START}
         tok = Tokenizer.from_file(f'{OUT}/{prefix}_tokenizer.json')
         info[prefix]['repo'] = repo
         info[prefix]['tokenizer_tests'] = [{'text': t, 'ids': tok.encode(t).ids} for t in TOKENIZER_TESTS]
@@ -400,7 +407,7 @@ def main():
     files = {n: {'size': os.path.getsize(f'{OUT}/{n}'), 'sha256': sha(f'{OUT}/{n}')}
              for n in sorted(os.listdir(OUT)) if n != 'manifest.json'}
     json.dump({'model': 'Comprensión y razonamiento en castellano de Herrero: jina-embeddings-v2-base-es '
-                        '(Apache-2.0) y SmolLM3-3B con razonamiento (Apache-2.0), ONNX de transformers.js '
+                        '(Apache-2.0) y Qwen3-4B-Thinking-2507 (Apache-2.0), ONNX de transformers.js '
                         '(ONNX Runtime 1.20)',
                'files': files, 'models': info},
               open(f'{OUT}/manifest.json', 'w'), indent=1, ensure_ascii=False)

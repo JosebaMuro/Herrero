@@ -23,7 +23,7 @@ jobs:
           python-version: "3.11"
       - name: Dependencias
         run: pip install --no-cache-dir "onnx==1.17.0" "onnxruntime==1.20.1" "numpy<2.2" huggingface_hub tokenizers
-      - name: jina-embeddings-v2-base-es y SmolLM3-3B (razonamiento) con ORT 1.20.1
+      - name: jina-embeddings-v2-base-es y Qwen3-4B-Thinking-2507 (razonamiento) con ORT 1.20.1
         run: python scripts/prepare_reason_es.py
       - name: Publicar en release de modelos en castellano
         uses: softprops/action-gh-release@v2
@@ -36,11 +36,11 @@ jobs:
           body: |
             Alternativa en castellano a la comprensión y el razonamiento locales de Herrero (sin internet una vez descargados).
             - jina-embeddings-v2-base-es (Jina AI, Apache-2.0): embeddings castellano-inglés en lugar de los multilingües de e5-small.
-            - SmolLM3-3B (Hugging Face, Apache-2.0): LLM con modo de razonamiento; el castellano es uno de sus seis idiomas principales. Pesos de 4 bits, para PC.
+            - Qwen3-4B-Thinking-2507 (Alibaba Qwen, Apache-2.0): LLM que razona en castellano antes de rellenar la ficha. Pesos de 4 bits, para PC.
             Necesita ONNX Runtime 1.20 (incluido en la app). Descarga desde la app → Modelos IA.
           files: out_reason_es/*
 
-  # Candidato descartado o no: se prueba con las mismas descripciones, sin publicar.
+  # Otros candidatos con las mismas descripciones, sin publicar (SmolLM3-3B se descartó así).
   candidato:
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -53,5 +53,5 @@ jobs:
           python-version: "3.11"
       - name: Dependencias
         run: pip install --no-cache-dir "onnx==1.17.0" "onnxruntime==1.20.1" "numpy<2.2" huggingface_hub tokenizers
-      - name: Qwen3-4B-Thinking-2507 (q4) con las mismas descripciones
-        run: python scripts/prepare_reason_es.py --eval onnx-community/Qwen3-4B-Thinking-2507-ONNX
+      - name: Qwen3-1.7B (int8) razonando, con las mismas descripciones
+        run: python scripts/prepare_reason_es.py --eval onnx-community/Qwen3-1.7B-ONNX onnx/model_quantized.onnx
