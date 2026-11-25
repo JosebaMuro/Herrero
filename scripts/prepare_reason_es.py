@@ -65,6 +65,46 @@ def hf(repo, f):
     return hf_hub_download(repo, f)
 
 
+def dequant_gather(m):
+    """GatherBlockQuantized con el atributo «bits» es de ORT 1.21+: la app usa 1.20.
+    Se cambia por Gather de la tabla de embeddings en fp16 + Cast a float."""
+    import onnx
+    from onnx import helper, numpy_helper
+    inits = {t.name: t for t in m.graph.initializer}
+    nodes = list(m.graph.node)
+    for k, node in enumerate(nodes):
+        if node.op_type != 'GatherBlockQuantized':
+            continue
+        a = {x.name: helper.get_attribute_value(x) for x in node.attribute}
+        bits, bs = a.get('bits', 4), a.get('block_size', 128)
+        assert a.get('gather_axis', 0) == 0 and a.get('quantize_axis', 1) in (1, -1), a
+        q = numpy_helper.to_array(inits[node.input[0]])
+        sc = numpy_helper.to_array(inits[node.input[2]]).astype(np.float32)
+        rows, nb = sc.shape
+        qv = np.stack([q & 0x0F, q >> 4], -1).reshape(rows, -1) if bits == 4 else q.reshape(rows, -1)
+        if len(node.input) > 3 and node.input[3]:
+            z = numpy_helper.to_array(inits[node.input[3]])
+            z = (np.stack([z & 0x0F, z >> 4], -1).reshape(rows, -1) if bits == 4 else z.reshape(rows, -1))[:, :nb]
+        else:
+            z = np.full((rows, nb), 8 if bits == 4 else 128, np.uint8)
+        w = ((qv[:, :nb * bs].reshape(rows, nb, bs).astype(np.float32) - z[..., None]) * sc[..., None])
+        w = w.reshape(rows, nb * bs).astype(np.float16)
+        name = node.input[0] + '_fp16'
+        m.graph.initializer.append(numpy_helper.from_array(w, name))
+        tmp = node.output[0] + '_fp16'
+        g = helper.make_node('Gather', [name, node.input[1]], [tmp], name=node.name + '_fp16', axis=0)
+        c = helper.make_node('Cast', [tmp], [node.output[0]], name=node.name + '_cast', to=onnx.TensorProto.FLOAT)
+        m.graph.node.remove(node)
+        pos = list(m.graph.node).index(nodes[k + 1]) if k + 1 < len(nodes) else len(m.graph.node)
+        m.graph.node.insert(pos, c)
+        m.graph.node.insert(pos, g)
+        used = {i for n in m.graph.node for i in n.input}
+        for i in [node.input[0]] + list(node.input[2:]):
+            if i in inits and i not in used:
+                m.graph.initializer.remove(inits[i])
+        print(f'  GatherBlockQuantized ({bits} bits) -> Gather fp16 {w.shape}')
+
+
 def fetch(prefix, repo, onnx_path, out=OUT, extra=('tokenizer.json', 'config.json')):
     """Copia el ONNX (con sus datos externos, en trozos < 2 GB) y el tokenizador."""
     import onnx
@@ -79,6 +119,7 @@ def fetch(prefix, repo, onnx_path, out=OUT, extra=('tokenizer.json', 'config.jso
     dst = f'{out}/{name}'
     if locs:
         m = onnx.load(src)  # con los pesos
+        dequant_gather(m)
         part, off, fh, parts = 0, 0, None, []
 
         def open_part(i):
@@ -216,14 +257,27 @@ SYSTEM = ('Eres el asistente de una oficina técnica de estructuras metálicas. 
           'Campos: largo_m, ancho_m, alto_m (metros); cubierta (panel sándwich, chapa grecada, policarbonato, teja, '
           'vidrio, tramex o sin cubierta); acero (S235JR, S275JR, S355JR, corten, inoxidable o aluminio); acabado '
           '(galvanizado, pintado o lacado); ubicacion (ciudad o provincia); uso (para qué es); carga_kg_m2; niveles.\n'
-          'Antes de responder, razona en castellano y en pocas líneas: qué medida es cada número (largo, ancho, '
-          'alto, luz, separación), las unidades y qué dato no aparece. Luego escribe solo la ficha JSON.')
+          'Antes de responder, razona en castellano y en pocas líneas: qué medida es cada número '
+          '(largo, ancho, alto, luz, separación), las unidades y qué dato no aparece. Luego escribe solo la ficha JSON.')
+
+# Igual que llmExamples de lib/engine/understanding.dart
+EXAMPLES = [
+    ('Quiero un tejadillo para meter 3 coches en mi casa de Burgos, que no pase de 2,5 de alto',
+     '{"tipo": "marquesina", "largo_m": 7.5, "ancho_m": 5, "alto_m": 2.5, "ubicacion": "Burgos", '
+     '"uso": "aparcamiento de 3 coches"}'),
+    ('altillo de ocho por cuatro metros para oficina, con suelo de tramex y todo galvanizado',
+     '{"tipo": "entreplanta", "largo_m": 8, "ancho_m": 4, "cubierta": "tramex", "acabado": "galvanizado", '
+     '"uso": "oficina"}'),
+]
 
 
 def think_chat(prompt, tipo):
-    """Formato de SmolLM3 / Qwen3 con razonamiento: el modelo piensa y luego se fuerza la ficha."""
-    return (f'<|im_start|>system\n## Metadata\n\nReasoning Mode: /think\n\n## Custom Instructions\n\n{SYSTEM}\n\n'
-            f'<|im_end|>\n<|im_start|>user\nPetición: {prompt}<|im_end|>\n<|im_start|>assistant\n<think>\n')
+    """Igual que llmThinkChat de lib/engine/understanding.dart (SmolLM3 / Qwen3 con razonamiento)."""
+    s = (f'<|im_start|>system\n## Metadata\n\nReasoning Mode: /think\n\n## Custom Instructions\n\n{SYSTEM}\n\n'
+         '<|im_end|>\n')
+    for q, a in EXAMPLES:
+        s += f'<|im_start|>user\nPetición: {q}<|im_end|>\n<|im_start|>assistant\n{a}<|im_end|>\n'
+    return s + f'<|im_start|>user\nPetición: {prompt}<|im_end|>\n<|im_start|>assistant\n<think>\n'
 
 
 class Llm:
@@ -247,7 +301,7 @@ class Llm:
         self.think_end = v.get('</think>')
 
     def generate(self, text, think_budget=384, after_think='', max_answer=120):
-        ids = self.tok.encode(text).ids
+        ids = self.tok.encode(text, add_special_tokens=False).ids
         past = {f'past_key_values.{i}.{kv}': np.zeros((1, self.H, 0, self.D), np.float32)
                 for i in range(self.L) for kv in ('key', 'value')}
         done = 0
