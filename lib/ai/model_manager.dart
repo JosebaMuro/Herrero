@@ -254,7 +254,7 @@ const catalog = <ModelVariant>[
     pcOnly: true,
     quality: 'Descripciones complejas (varias medidas, cargas, usos): muy buena',
     speed: '2–4 min por petición en CPU (menos con gráfica)',
-    approxBytes: 2930000000,
+    approxBytes: 3500000000,
     release: reasonEsRelease,
     subdir: 'reason-es',
     fileList: [
