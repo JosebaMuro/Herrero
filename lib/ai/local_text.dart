@@ -229,12 +229,12 @@ double dot(Float32List a, Float32List b) {
 }
 
 // ---------------------------------------------------------------------------
-// LLM pequeño (Qwen3, SmolLM3) con caché KV y decodificación voraz
+// LLM pequeño (Qwen3) con caché KV y decodificación voraz
 // ---------------------------------------------------------------------------
 
 class LlmRequest {
   final String modelDir;
-  final String prefix; // qwen3 (0.6B), qwen3big (1.7B) o smollm3 (3B, con razonamiento)
+  final String prefix; // qwen3 (0.6B), qwen3big (1.7B) o qwen3think (4B, con razonamiento)
   final String? modelFile; // por defecto <prefix>_model_int8.onnx
   final String prompt; // conversación completa ya formateada
   final int maxTokens;
@@ -247,6 +247,7 @@ class LlmRequest {
   /// `</think>` + [afterThink] (el inicio de la ficha) y sigue la respuesta.
   final int thinkBudget;
   final String afterThink;
+  final String thinkStart; // comienzo del razonamiento que ya trae el prompt (para enseñarlo)
   const LlmRequest({
     required this.modelDir,
     this.prefix = 'qwen3',
@@ -258,6 +259,7 @@ class LlmRequest {
     this.stopAtJsonEnd = true,
     this.thinkBudget = 0,
     this.afterThink = '',
+    this.thinkStart = '',
   });
 
   String get file => modelFile ?? '${prefix}_model_int8.onnx';
@@ -446,7 +448,7 @@ Future<LlmResult> runLlmSync(LlmRequest req, [void Function(String)? onPartial])
         if (best == thinkEnd || eos.contains(best) || thoughtIds.length >= req.thinkBudget) break;
         thoughtIds.add(best);
         if (onPartial != null && thoughtIds.length % 4 == 0) {
-          final t = tok.decode(thoughtIds).trim().replaceAll(RegExp(r'\s+'), ' ');
+          final t = (req.thinkStart + tok.decode(thoughtIds)).trim().replaceAll(RegExp(r'\s+'), ' ');
           onPartial('$thinkingLabel${t.length > 240 ? '…${t.substring(t.length - 240)}' : t}');
         }
         logits = step([best]);
@@ -456,7 +458,7 @@ Future<LlmResult> runLlmSync(LlmRequest req, [void Function(String)? onPartial])
         logits = step(forced.sublist(i, math.min(forced.length, i + 64)));
       }
     }
-    final thought = tok.decode(thoughtIds).trim();
+    final thought = thoughtIds.isEmpty ? '' : (req.thinkStart + tok.decode(thoughtIds)).trim();
     final outIds = <int>[];
     var text = '';
     for (var k = 0; k < req.maxTokens; k++) {

@@ -39,7 +39,7 @@ List<String> expectedInputs(String file) {
   if (f.contains('vae_decoder') || f == 'taesd_decoder.onnx') return const ['latent_sample'];
   if (f.startsWith('ppocrv4_')) return const ['x'];
   if (f.startsWith('e5s_model') || f.startsWith('jinaes_model')) return const ['input_ids', 'attention_mask'];
-  if ((f.startsWith('qwen3_model') || f.startsWith('smollm3_model')) && f.endsWith('.onnx')) {
+  if ((f.startsWith('qwen3_model') || f.startsWith('qwen3think_model')) && f.endsWith('.onnx')) {
     return const ['input_ids', 'attention_mask', 'past_key_values.0.key'];
   }
   if (f.contains('_vision')) return const ['pixel_values'];
@@ -103,10 +103,10 @@ List<ImportTarget> candidatesFor(String fileName, OnnxInfo info, {ModelVariant? 
 
 List<String> _nameHints(String file) {
   final f = file.toLowerCase();
+  if (f.startsWith('qwen3think')) return const ['thinking', '4b'];
   if (f.startsWith('qwen3')) return const ['qwen'];
   if (f.startsWith('e5s')) return const ['e5', 'multilingual'];
   if (f.startsWith('jinaes')) return const ['jina', '-es', '_es'];
-  if (f.startsWith('smollm3')) return const ['smollm'];
   if (f.startsWith('smolvlm500')) return const ['500'];
   if (f.startsWith('smolvlm')) return const ['smolvlm', '256'];
   if (f.startsWith('ppocr')) return [if (f.contains('det')) 'det', if (f.contains('rec')) 'rec'];

@@ -73,22 +73,25 @@ String llmChat(String prompt, StructureType type) =>
     '${llmPrefix()}<|im_start|>user\nPetición: ${prompt.trim()}<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n'
     '${llmSeed(type)}';
 
-/// Conversación para un LLM con modo razonamiento (SmolLM3): piensa en
-/// castellano antes de rellenar la ficha. Termina en `<think>\n`; al acabar
-/// de pensar se fuerza `</think>` y [llmSeed].
+/// Conversación para un LLM que razona (Qwen3-4B-Thinking): piensa en
+/// castellano antes de rellenar la ficha. Termina en `<think>\n` y
+/// [llmThinkStart]; al acabar de pensar se fuerza `</think>` y [llmSeed].
 String llmThinkChat(String prompt, StructureType type) {
-  final b = StringBuffer('<|im_start|>system\n## Metadata\n\nReasoning Mode: /think\n\n## Custom Instructions\n\n'
-      '${llmSystem()}\n$llmThinkHint\n\n<|im_end|>\n');
+  final b = StringBuffer('<|im_start|>system\n${llmSystem()}\n$llmThinkHint<|im_end|>\n');
   for (final (q, a) in llmExamples) {
     b.write('<|im_start|>user\nPetición: $q<|im_end|>\n<|im_start|>assistant\n$a<|im_end|>\n');
   }
-  b.write('<|im_start|>user\nPetición: ${prompt.trim()}<|im_end|>\n<|im_start|>assistant\n<think>\n');
+  b.write('<|im_start|>user\nPetición: ${prompt.trim()}<|im_end|>\n<|im_start|>assistant\n<think>\n$llmThinkStart');
   return b.toString();
 }
 
 /// Qué tiene que razonar el modelo antes de responder.
-const llmThinkHint = 'Antes de responder, razona en castellano y en pocas líneas: qué medida es cada número '
-    '(largo, ancho, alto, luz, separación), las unidades y qué dato no aparece. Luego escribe solo la ficha JSON.';
+const llmThinkHint = 'Antes de responder, razona en castellano y en pocas líneas: qué medida es cada número, '
+    'las unidades y qué dato no aparece. En naves y pórticos la luz es el ancho_m y el fondo o la longitud '
+    'es el largo_m; alto_m es la altura libre o al alero. Luego escribe solo la ficha JSON.';
+
+/// Comienzo forzado del razonamiento: así piensa en castellano y dato a dato.
+const llmThinkStart = 'Razono en castellano, dato a dato:\n-';
 
 /// Inicio forzado de la respuesta: la tipología ya está decidida.
 String llmSeed(StructureType type) => '{"tipo": "${type.name}", "';

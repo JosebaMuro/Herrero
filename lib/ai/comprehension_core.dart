@@ -43,14 +43,14 @@ int _fnv(String s) {
   return h;
 }
 
-/// LLM con modo razonamiento (piensa antes de rellenar la ficha).
-bool llmThinks(String prefix) => prefix == 'smollm3';
+/// LLM que razona antes de rellenar la ficha (Qwen3-4B-Thinking).
+bool llmThinks(String prefix) => prefix == 'qwen3think';
 
 /// Fichero ONNX del LLM de prefijo [prefix].
 String llmModelFile(String prefix) => llmThinks(prefix) ? '${prefix}_model_q4.onnx' : '${prefix}_model_int8.onnx';
 
 /// Comprensión con los modelos de [dir] (e5-small o jina-es) y de
-/// [reasonDir] (Qwen3 o SmolLM3), sin depender de Flutter.
+/// [reasonDir] (Qwen3 0.6B o Qwen3-4B-Thinking), sin depender de Flutter.
 class ComprehensionEngine {
   ComprehensionEngine(this.dir, {String? reasonDir, this.embed = e5Spec}) : reasonDir = reasonDir ?? dir;
   final String dir;
@@ -114,7 +114,7 @@ class ComprehensionEngine {
       startLlm(llmRequestFor(reasonDir, prefix, prompt, type, threads: threads, engine: engine), onPartial);
 }
 
-/// Petición al LLM según el modelo: con razonamiento (SmolLM3) piensa antes y
+/// Petición al LLM según el modelo: con razonamiento (Qwen3-4B-Thinking) piensa antes y
 /// la ficha empieza al cerrar `</think>`; sin él, la ficha empieza ya.
 LlmRequest llmRequestFor(String dir, String prefix, String prompt, StructureType type,
     {int threads = 4, AiEngine engine = AiEngine.cpu}) {
@@ -127,6 +127,7 @@ LlmRequest llmRequestFor(String dir, String prefix, String prompt, StructureType
     modelFile: llmModelFile(prefix),
     prompt: llmThinkChat(prompt, type),
     afterThink: llmSeed(type),
+    thinkStart: llmThinkStart,
     thinkBudget: 384,
     threads: threads,
     engine: engine,
