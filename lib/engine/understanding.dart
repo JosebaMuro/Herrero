@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:math' as math;
 
+import 'comprehension_aids.dart';
 import 'model.dart';
 import 'parser.dart';
 import 'reasoning.dart';
@@ -32,8 +33,11 @@ class Understanding {
   final Map<String, DataSource> sources;
   final List<String> notes; // explicaciones (tipología, deducciones, avisos)
   final String enriched; // texto que se ha calculado (petición + datos añadidos)
+  final List<Fact> facts; // cifras con su sentido leídas por reglas
+  final List<String> warnings; // datos que no cuadran entre sí
+  final List<Question> questions; // datos clave que faltan
   Understanding(this.prompt, this.type, this.typeSource, this.ranking, this.llm, this.spec, this.sources, this.notes,
-      this.enriched);
+      this.enriched, {this.facts = const [], this.warnings = const [], this.questions = const []});
 }
 
 /// Instrucciones del LLM. La tipología ya viene decidida en la respuesta.
@@ -43,45 +47,38 @@ String llmSystem() => 'Eres el asistente de una oficina técnica de estructuras 
     'vidrio, tramex o sin cubierta); acero (S235JR, S275JR, S355JR, corten, inoxidable o aluminio); acabado '
     '(galvanizado, pintado o lacado); ubicacion (ciudad o provincia); uso (para qué es); carga_kg_m2; niveles.';
 
-/// Ejemplos (petición, ficha) que se dan al LLM antes de la petición real.
-const llmExamples = <(String, String)>[
-  (
-    'Quiero un tejadillo para meter 3 coches en mi casa de Burgos, que no pase de 2,5 de alto',
-    '{"tipo": "marquesina", "largo_m": 7.5, "ancho_m": 5, "alto_m": 2.5, "ubicacion": "Burgos", '
-        '"uso": "aparcamiento de 3 coches"}'
-  ),
-  (
-    'altillo de ocho por cuatro metros para oficina, con suelo de tramex y todo galvanizado',
-    '{"tipo": "entreplanta", "largo_m": 8, "ancho_m": 4, "cubierta": "tramex", "acabado": "galvanizado", '
-        '"uso": "oficina"}'
-  ),
-];
+/// Ejemplos (petición, ficha) de serie que se dan al LLM antes de la petición
+/// real cuando no se eligen por parecido.
+final llmExamples = llmExamplePool.take(2).toList();
 
-/// Parte fija de la conversación (instrucciones y ejemplos): su caché KV se
-/// puede reutilizar entre peticiones.
-String llmPrefix() {
+/// Mensaje del usuario: la petición, los datos que ya han leído las reglas
+/// (extracción en dos pasos) y el glosario de los términos que usa.
+String llmUser(String prompt) => 'Petición: ${prompt.trim()}${factsForLlm(readFacts(prompt))}${glossaryForLlm(prompt)}';
+
+/// Instrucciones y ejemplos resueltos (sin razonamiento).
+String llmPrefix([List<(String, String)>? examples]) {
   final b = StringBuffer('<|im_start|>system\n${llmSystem()}<|im_end|>\n');
-  for (final (q, a) in llmExamples) {
-    b.write('<|im_start|>user\nPetición: $q<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n$a<|im_end|>\n');
+  for (final (q, a) in examples ?? llmExamples) {
+    b.write('<|im_start|>user\n${llmUser(q)}<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n$a<|im_end|>\n');
   }
   return b.toString();
 }
 
 /// Conversación completa en el formato de chat de Qwen3, sin modo de
 /// pensamiento y con la respuesta ya empezada con la tipología decidida.
-String llmChat(String prompt, StructureType type) =>
-    '${llmPrefix()}<|im_start|>user\nPetición: ${prompt.trim()}<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n'
-    '${llmSeed(type)}';
+String llmChat(String prompt, StructureType type, [List<(String, String)>? examples]) =>
+    '${llmPrefix(examples ?? pickExamples(prompt, type))}<|im_start|>user\n${llmUser(prompt)}<|im_end|>\n'
+    '<|im_start|>assistant\n<think>\n\n</think>\n\n${llmSeed(type)}';
 
 /// Conversación para un LLM que razona (Qwen3-4B-Thinking): piensa en
 /// castellano antes de rellenar la ficha. Termina en `<think>\n` y
 /// [llmThinkStart]; al acabar de pensar se fuerza `</think>` y [llmSeed].
-String llmThinkChat(String prompt, StructureType type) {
+String llmThinkChat(String prompt, StructureType type, [List<(String, String)>? examples]) {
   final b = StringBuffer('<|im_start|>system\n${llmSystem()}\n$llmThinkHint<|im_end|>\n');
-  for (final (q, a) in llmExamples) {
-    b.write('<|im_start|>user\nPetición: $q<|im_end|>\n<|im_start|>assistant\n$a<|im_end|>\n');
+  for (final (q, a) in examples ?? pickExamples(prompt, type)) {
+    b.write('<|im_start|>user\n${llmUser(q)}<|im_end|>\n<|im_start|>assistant\n$a<|im_end|>\n');
   }
-  b.write('<|im_start|>user\nPetición: ${prompt.trim()}<|im_end|>\n<|im_start|>assistant\n<think>\n$llmThinkStart');
+  b.write('<|im_start|>user\n${llmUser(prompt)}<|im_end|>\n<|im_start|>assistant\n<think>\n$llmThinkStart');
   return b.toString();
 }
 
@@ -289,6 +286,18 @@ Understanding understand(String prompt,
   }
 
   final extra = <String>[];
+  // 0) extracción en dos pasos: cifras con su sentido que el intérprete no ha leído
+  final facts = readFacts(text);
+  final fromFacts = <String>[];
+  for (final f in facts) {
+    final field = f.field;
+    if (field == null || src[field] == DataSource.text || overrides.containsKey(field)) continue;
+    if (field == 'height' && facts.any((o) => o.field == 'height' && o.value > f.value)) continue;
+    extra.add(field == 'liveLoad' ? 'sobrecarga ${_f(f.value)} kg/m2' : fieldPhrase(field, f.value));
+    src[field] = DataSource.text;
+    fromFacts.add('${f.label} ${_f(f.value)} ${f.unit}');
+  }
+  if (fromFacts.isNotEmpty) notes.add('Leído de tu texto: ${fromFacts.join(', ')}.');
   // 1) cambios del usuario
   overrides.forEach((f, v) {
     extra.add(fieldPhrase(f, v));
@@ -345,7 +354,9 @@ Understanding understand(String prompt,
   }
   final enriched = extra.isEmpty ? text : '$text, ${extra.join(', ')}';
   final spec = parsePrompt(enriched, type: type);
-  return Understanding(prompt, type, typeSource, ranking, llm, spec, src, notes, enriched);
+  final assumed = {for (final e in src.entries) if (e.value == DataSource.assumed) e.key};
+  return Understanding(prompt, type, typeSource, ranking, llm, spec, src, notes, enriched,
+      facts: facts, warnings: coherenceWarnings(spec, facts), questions: clarifyingQuestions(type, assumed));
 }
 
 const _fieldName = {

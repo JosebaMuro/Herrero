@@ -1,5 +1,7 @@
+import '../engine/comprehension_aids.dart';
 import '../engine/model.dart';
 import 'comprehension_core.dart';
+import 'learned_examples.dart';
 import 'local_text.dart';
 import 'model_gate.dart';
 import 'model_manager.dart';
@@ -42,12 +44,31 @@ class Comprehension {
   Future<LlmJob?> read(String prompt, StructureType type, void Function(String) onPartial) async {
     final mgr = ModelManager.instance;
     if (!mgr.reasonReady) return null;
-    final job = (await _get()).read(prompt, type, onPartial,
+    final engine = await _get();
+    final examples = await _examples(engine, prompt, type);
+    final job = engine.read(prompt, type, onPartial,
         prefix: mgr.reasoner.files.first.split('_').first,
         threads: mgr.device?.recommendedThreads ?? 4,
-        engine: mgr.engineFor(ModelTask.reason));
+        engine: mgr.engineFor(ModelTask.reason),
+        examples: examples);
     final release = ModelGate.instance.hold(ModelTask.reason, job.cancel);
     job.future.whenComplete(release).ignore();
     return job;
+  }
+
+  /// Ejemplos para el LLM: los de serie más las correcciones del usuario,
+  /// elegidos por parecido de significado (o por palabras sin embeddings).
+  Future<List<(String, String)>> _examples(ComprehensionEngine engine, String prompt, StructureType type) async {
+    final pool = [...llmExamplePool, ...await LearnedExamples.instance.load()];
+    final mgr = ModelManager.instance;
+    if (mgr.embedReady) {
+      try {
+        return await ModelGate.instance.run(
+            ModelTask.understand,
+            () => engine.examplesFor(prompt, type, pool,
+                threads: (mgr.device?.recommendedThreads ?? 4).clamp(1, 4), engine: mgr.engineFor(ModelTask.understand)));
+      } catch (_) {}
+    }
+    return pickExamples(prompt, type, pool: pool);
   }
 }

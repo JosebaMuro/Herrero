@@ -25,7 +25,7 @@ Texto / plano ──► parser + comprensión ──► StructureSpec (ficha)
 | `lib/engine/` | Motor: `parser.dart` (texto → ficha), `designer*.dart` (diseño por tipología), `profiles.dart` (catálogos y materiales), `cutting.dart` (optimizador de corte), `normativa.dart`, `bom.dart`, **`pricing.dart`**, **`invoice_parser.dart`**, **`budget.dart`**, **`spec_json.dart`** |
 | `lib/cad/` | Láminas CAD (cajetín ISO 7200, cotas, soldadura ISO 2553), PDF vectorial, DXF R12, COLLADA |
 | `lib/plans/` | Lector de PDF propio, OCR PP-OCRv4, análisis de planos |
-| `lib/ai/` | Modelos locales: e5-small, Qwen3, SmolVLM, SD-Turbo; aceleración (DirectML, CUDA, OpenVINO, NNAPI; `ort_core.dart` y `download.dart` en Dart puro, compartidos con la TUI; `comprehension_core.dart`); **`model_gate.dart`** |
+| `lib/ai/` | Modelos locales: e5-small, Qwen3, jina-es, Qwen3-4B-Thinking, SmolVLM, SD-Turbo; aceleración (DirectML, CUDA, OpenVINO, NNAPI; `ort_core.dart` y `download.dart` en Dart puro, compartidos con la TUI; `comprehension_core.dart`); **`model_gate.dart`** |
 | `lib/services/` | Exportación, **`project_store.dart`**, **`price_store.dart`**, **`geo.dart`**, **`sections_pdf.dart`** |
 | `lib/screens/` | Pantallas; nuevas: `projects_screen.dart`, `prices_screen.dart`, `invoice_screen.dart`, `budget_tab.dart` |
 | `linux/` | Ejecutable GTK (nuevo en 4.3) |
@@ -140,6 +140,23 @@ no tener varios documentos en memoria. `buildPdf` (proyecto completo) usa todos 
   en fila los trabajos cortos (OCR, embeddings).
 - `main.dart`: caché de imágenes de 48 MB / 60 imágenes en móvil y 160 MB en escritorio, y vaciado de
   cachés en `didHaveMemoryPressure`.
+
+### 9.1 Comprensión de la petición (`engine/comprehension_aids.dart`, `engine/understanding.dart`)
+
+- Modelos: e5-small + Qwen3 0.6B (release `models-reason-v1`) o, como alternativa en castellano,
+  jina-embeddings-v2-base-es + Qwen3-4B-Thinking q4 (release `models-reason-es-v1`, carpeta
+  `reason-es`, `scripts/prepare_reason_es.py`). Elección en `ai.active.understand` /
+  `ai.active.reason`. El 4B piensa 384 tokens empezando por `llmThinkStart` y luego se fuerza la ficha.
+- Dos pasos: `readFacts` lee cifras con su sentido por reglas (luz → ancho, fondo → largo, alero,
+  cumbrera, «a N m del suelo», kg/m², pendiente…); entran en la ficha como dato del texto y se pasan
+  al LLM («Datos ya leídos por la app»), junto con el glosario de oficio (`glossaryFor`, que reutiliza
+  `vocabulary.dart`).
+- Ejemplos few-shot: `pickExamples` sobre `llmExamplePool` + correcciones guardadas
+  (`ai/learned_examples.dart`, `learned_examples.json`, máx. 30), por parecido de embeddings
+  (`ComprehensionEngine.examplesFor`) o por palabras sin modelo.
+- `coherenceWarnings` y `clarifyingQuestions` dan los avisos y preguntas de la ficha; al calcular con
+  la ficha corregida se guarda (petición, `fichaJson`) como ejemplo.
+- Precedencia de los datos: usuario > texto > deducción de oficio > IA > valor habitual.
 
 ## 10. Plataformas, compilación y publicación
 

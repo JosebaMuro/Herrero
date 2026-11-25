@@ -23,8 +23,9 @@ void main() {
     expect(find.text('Lo que he entendido'), findsOneWidget);
     expect(find.text(StructureType.marquesina.label), findsOneWidget);
     expect(find.text('7,50 m'), findsOneWidget);
-    expect(find.textContaining('3 plazas'), findsOneWidget);
     expect(find.text('deducido'), findsWidgets);
+    // falta la cubierta: se pregunta con respuestas rápidas
+    expect(find.text('¿De qué será la cubierta?'), findsOneWidget);
 
     await tester.tap(find.text('Altura libre'));
     await tester.pumpAndSettle();
@@ -33,6 +34,13 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('3,20 m'), findsOneWidget);
     expect(find.text('cambiado por ti'), findsOneWidget);
+
+    await tester.scrollUntilVisible(find.textContaining('3 plazas'), 200);
+    expect(find.textContaining('3 plazas'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('Policarbonato'), -200);
+    await tester.tap(find.text('Policarbonato'));
+    await tester.pumpAndSettle();
+    expect(find.text('¿De qué será la cubierta?'), findsNothing);
   });
 
   testWidgets('cambiar la tipología y calcular', (tester) async {
@@ -44,7 +52,7 @@ void main() {
     expect(find.text('Luz (ancho)'), findsOneWidget);
     expect(find.text('cambiado por ti'), findsWidgets);
 
-    await tester.scrollUntilVisible(find.text('Calcular estructura'), 200);
+    await tester.scrollUntilVisible(find.textContaining('Toca un dato para cambiarlo'), 200);
     await tester.tap(find.text('Calcular estructura'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));

@@ -10,6 +10,7 @@ import 'package:herrero/ai/bpe_tokenizer.dart';
 import 'package:herrero/ai/comprehension_core.dart';
 import 'package:herrero/ai/local_text.dart';
 import 'package:herrero/ai/model_manager.dart';
+import 'package:herrero/engine/comprehension_aids.dart';
 import 'package:herrero/engine/model.dart';
 import 'package:herrero/engine/understanding.dart';
 
@@ -86,12 +87,16 @@ void main() {
 
   group('razonamiento', () {
     test('la conversación deja pensar y la ficha se fuerza después', () {
-      final c = llmThinkChat('nave de 24 m de luz', StructureType.nave);
+      final c = llmThinkChat('nave de 24 m de luz', StructureType.nave, llmExamples);
       expect(c, contains(llmThinkHint));
       expect(c, endsWith('<|im_start|>assistant\n<think>\n$llmThinkStart'));
       for (final (q, a) in llmExamples) {
-        expect(c, contains('Petición: $q<|im_end|>\n<|im_start|>assistant\n$a<|im_end|>'));
+        expect(c, contains('${llmUser(q)}<|im_end|>\n<|im_start|>assistant\n$a<|im_end|>'));
       }
+      // la petición lleva los datos ya leídos por reglas
+      expect(c, contains('luz (ancho): 24 m'));
+      // sin ejemplos dados, se eligen por parecido
+      expect(llmThinkChat('altillo para almacén', StructureType.entreplanta), contains('"tipo": "entreplanta"'));
       final r = llmRequestFor('/m', 'qwen3think', 'nave de 24 m de luz', StructureType.nave);
       expect(r.thinkBudget, greaterThan(0));
       expect(r.afterThink, llmSeed(StructureType.nave));
@@ -116,13 +121,9 @@ void main() {
             reason: '$prefix: ${x['text']}');
       }
     }
-    // el prompt de razonamiento se tokeniza igual que en la prueba de Python
-    final t = await BpeTokenizer.fromFile('$dir/qwen3think_tokenizer.json');
+    // el razonamiento empieza igual que en la prueba de Python (el resto del
+    // prompt lleva ahora datos leídos, glosario y ejemplos por parecido)
     expect(man['models']['qwen3think']['think_start'], llmThinkStart);
-    for (final r in man['models']['qwen3think']['reference'] as List) {
-      final type = StructureType.values.byName(r['tipo'] as String);
-      expect(t.encode(llmThinkChat(r['prompt'] as String, type)), (r['prompt_ids'] as List).cast<int>());
-    }
   });
 
   test('embeddings en castellano: referencia y tipología', () async {
@@ -138,6 +139,11 @@ void main() {
     // ignore: avoid_print
     print(r.take(3).map((e) => '${e.$1.name} ${e.$2.toStringAsFixed(3)}').join(', '));
     expect(r.first.$1, StructureType.marquesina);
+    // ejemplos para el LLM por parecido de significado
+    final ex = await engine.examplesFor('altillo en el taller para guardar cajas', StructureType.entreplanta, llmExamplePool);
+    // ignore: avoid_print
+    print(ex.map((e) => e.$1).join(' | '));
+    expect(ex.first.$2, contains('"tipo": "entreplanta"'));
   }, timeout: const Timeout(Duration(minutes: 5)));
 
   test('Qwen3-4B-Thinking razona en castellano y rellena la ficha', () async {
@@ -148,7 +154,8 @@ void main() {
       final p = r['prompt'] as String;
       final type = StructureType.values.byName(r['tipo'] as String);
       final partial = <String>[];
-      final res = await runLlmSync(llmRequestFor(dir, 'qwen3think', p, type), partial.add);
+      final ex = await ComprehensionEngine(dir, embed: jinaEsSpec).examplesFor(p, type, llmExamplePool);
+      final res = await runLlmSync(llmRequestFor(dir, 'qwen3think', p, type, examples: ex), partial.add);
       final j = parseLlmJson(res.text, llmSeed(type));
       // ignore: avoid_print
       print('${res.time.inSeconds} s; razonamiento: ${res.thought}\n -> ${llmSeed(type)}${res.text}');

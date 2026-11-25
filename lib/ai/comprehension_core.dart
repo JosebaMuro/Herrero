@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import '../engine/comprehension_aids.dart';
 import '../engine/intents.dart';
 import '../engine/model.dart';
 import '../engine/understanding.dart';
@@ -110,22 +111,48 @@ class ComprehensionEngine {
 
   /// Lanza el LLM para leer la petición con la tipología ya decidida.
   LlmJob read(String prompt, StructureType type, void Function(String) onPartial,
-          {String prefix = 'qwen3', int threads = 4, AiEngine engine = AiEngine.cpu}) =>
-      startLlm(llmRequestFor(reasonDir, prefix, prompt, type, threads: threads, engine: engine), onPartial);
+          {String prefix = 'qwen3',
+          int threads = 4,
+          AiEngine engine = AiEngine.cpu,
+          List<(String, String)>? examples}) =>
+      startLlm(
+          llmRequestFor(reasonDir, prefix, prompt, type, threads: threads, engine: engine, examples: examples),
+          onPartial);
+
+  final Map<String, Float32List> _exampleVecs = {};
+
+  /// Ejemplos para el LLM elegidos por parecido de significado con la petición (simétrico: ambos como consulta)
+  /// (los vectores de los ejemplos se guardan para no recalcularlos).
+  Future<List<(String, String)>> examplesFor(String prompt, StructureType type, List<(String, String)> pool,
+      {int k = 3, int threads = 4, AiEngine engine = AiEngine.cpu}) async {
+    if (pool.length <= k) return pool;
+    final missing = [
+      for (final (q, _) in pool)
+        if (!_exampleVecs.containsKey(q)) q
+    ];
+    final texts = ['${embed.query}${prompt.trim()}', for (final q in missing) '${embed.query}$q'];
+    final v = await embedTexts(EmbedRequest(dir, texts, prefix: embed.prefix, threads: threads, engine: engine));
+    for (var i = 0; i < missing.length; i++) {
+      _exampleVecs[missing[i]] = v[i + 1];
+    }
+    final q = v.first;
+    return pickExamples(prompt, type, pool: pool, k: k, similarity: (e) => dot(q, _exampleVecs[e]!));
+  }
 }
 
 /// Petición al LLM según el modelo: con razonamiento (Qwen3-4B-Thinking) piensa antes y
 /// la ficha empieza al cerrar `</think>`; sin él, la ficha empieza ya.
 LlmRequest llmRequestFor(String dir, String prefix, String prompt, StructureType type,
-    {int threads = 4, AiEngine engine = AiEngine.cpu}) {
+    {int threads = 4, AiEngine engine = AiEngine.cpu, List<(String, String)>? examples}) {
   if (!llmThinks(prefix)) {
-    return LlmRequest(modelDir: dir, prefix: prefix, prompt: llmChat(prompt, type), threads: threads, engine: engine);
+    return LlmRequest(
+        modelDir: dir, prefix: prefix, prompt: llmChat(prompt, type, examples), threads: threads, engine: engine);
   }
   return LlmRequest(
     modelDir: dir,
     prefix: prefix,
     modelFile: llmModelFile(prefix),
-    prompt: llmThinkChat(prompt, type),
+    prompt: llmThinkChat(prompt, type, examples),
     afterThink: llmSeed(type),
     thinkStart: llmThinkStart,
     thinkBudget: 384,
