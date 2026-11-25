@@ -25,6 +25,12 @@ jobs:
         run: pip install --no-cache-dir "onnx==1.17.0" "onnxruntime==1.20.1" "numpy<2.2" huggingface_hub tokenizers
       - name: jina-embeddings-v2-base-es y Qwen3-4B-Thinking-2507 (razonamiento) con ORT 1.20.1
         run: python scripts/prepare_reason_es.py
+      - name: Quitar de la release los ficheros de SmolLM3 (descartado)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view models-reason-es-v1 --json assets -q '.assets[].name' 2>/dev/null | grep '^smollm3' \
+            | xargs -r -I{} gh release delete-asset models-reason-es-v1 {} -y || true
       - name: Publicar en release de modelos en castellano
         uses: softprops/action-gh-release@v2
         with:
