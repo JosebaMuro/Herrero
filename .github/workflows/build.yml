@@ -299,11 +299,25 @@ jobs:
           cp docs/documentacion-tecnica.md dist/Herrero-documentacion-tecnica.md
           git archive --format=zip --prefix=Herrero-src/ -o dist/Herrero-codigo-fuente.zip HEAD
           ls -l dist
+      # Etiqueta v<versión>-<letra>: cada corrección de la misma versión sigue el abecedario
+      # (v4.3.0-b71 -> v4.3.0-c -> v4.3.0-d…); una versión nueva empieza en «a».
+      # Las releases antiguas llevaban además el número de compilación (b71): se ignora.
       - name: Versión
         id: ver
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then echo "tag=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT;
-          else echo "tag=v$(grep '^version:' pubspec.yaml 2>/dev/null | cut -d' ' -f2 | cut -d+ -f1 || echo 1.0.0)-b${{ github.run_number }}" >> $GITHUB_OUTPUT; fi
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then echo "tag=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT; exit 0; fi
+          ver=$(grep '^version:' pubspec.yaml | cut -d' ' -f2 | cut -d+ -f1)
+          last=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --paginate --jq '.[].tag_name' \
+                 | sed -n "s/^v${ver//./\\.}-\([a-z]\)[0-9]*$/\1/p" | sort | tail -1)
+          case "$last" in
+            "") letra=a ;;
+            z) echo "::error::v$ver ya llegó a la z: sube la versión en pubspec.yaml"; exit 1 ;;
+            *) letra=$(echo "$last" | tr 'a-y' 'b-z') ;;
+          esac
+          echo "v$ver: última letra «${last:-ninguna}», esta release: v$ver-$letra"
+          echo "tag=v$ver-$letra" >> $GITHUB_OUTPUT
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.ver.outputs.tag }}
