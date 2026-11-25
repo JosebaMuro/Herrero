@@ -114,6 +114,17 @@ se genera un archivo para cada uno, listo para enviar solo su parte a cada perso
 
 - Los modelos (comprensión, razonamiento, OCR, visión de croquis y foto IA) se descargan desde
   **Modelos de IA local** y funcionan sin conexión.
+- **Comprensión en castellano** (opcional): en Modelos de IA local puedes elegir, en lugar de los
+  modelos multilingües de serie, **jina-embeddings-v2-base-es** (comprensión, 162 MB) y, en PC,
+  **Qwen3-4B-Thinking** (razonamiento, unos 3,5 GB y 8 GB de RAM o más). Este último razona en
+  castellano antes de rellenar la ficha (tarda unos 2–3 minutos) y en la ficha puedes desplegar
+  **Cómo lo ha razonado la IA**.
+- **Ficha de interpretación**: la app lee primero las cifras con su sentido («24 m de luz», «7 m al
+  alero», «500 kg por metro cuadrado») y la IA solo interpreta lo dudoso. Si algo no cuadra (cumbrera
+  por debajo del alero, luz mayor que el fondo…) sale el aviso **Revisa estos datos**, y si falta un
+  dato clave (cubierta, carga, acabado) la tarjeta **Para afinar** lo pregunta con respuestas de un
+  toque. Cuando corriges la ficha y calculas, la corrección se guarda en el equipo como ejemplo para
+  que la IA acierte con peticiones parecidas.
 - **Carga de modelos** (en Modelos de IA local): en *Automático*, si el equipo tiene menos de 6 GB de
   RAM los modelos se cargan **por turnos** según el paso en que estés (ficha, planos, foto,
   facturas). Al pasar de un paso a otro se cancela lo que el nuevo paso no usa (por ejemplo, el

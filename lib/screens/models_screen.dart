@@ -386,7 +386,8 @@ class _ModelsScreenState extends State<ModelsScreen> {
                 'Los modelos se ejecutan en tu dispositivo: las imágenes no salen de él. '
                 'Basados en SD-Turbo (Stability AI; revisa su licencia antes de un uso comercial), TAESD (MIT) '
                 'PP-OCRv4 de PaddleOCR (Apache-2.0), SmolVLM de Hugging Face (Apache-2.0), multilingual-e5-small '
-                '(MIT) y Qwen3 (Apache-2.0), en formato ONNX '
+                '(MIT), Qwen3 (Apache-2.0), jina-embeddings-v2-base-es (Apache-2.0) y Qwen3-4B-Thinking (Apache-2.0), '
+                'en formato ONNX '
                 'para funcionar en CPU, NPU o GPU.',
                 style: Theme.of(context).textTheme.bodySmall,
               ),

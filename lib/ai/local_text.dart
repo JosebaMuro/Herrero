@@ -119,22 +119,56 @@ class UnigramTokenizer {
 }
 
 // ---------------------------------------------------------------------------
-// Embeddings de frases (multilingual-e5-small): media de la última capa
+// Embeddings de frases (multilingual-e5-small o jina-v2-base-es): media de
+// la última capa, normalizada
 // ---------------------------------------------------------------------------
+
+/// Modelo de embeddings: prefijo de ficheros y lo que se antepone a la
+/// petición y a las frases de ejemplo (e5 pide «query: » y «passage: »).
+class EmbedSpec {
+  final String prefix;
+  final String query;
+  final String passage;
+  const EmbedSpec(this.prefix, this.query, this.passage);
+}
+
+const e5Spec = EmbedSpec('e5s', 'query: ', 'passage: ');
+const jinaEsSpec = EmbedSpec('jinaes', '', '');
+
+/// Especificación por prefijo de ficheros (e5s o jinaes).
+EmbedSpec embedSpecFor(String prefix) => prefix == jinaEsSpec.prefix ? jinaEsSpec : e5Spec;
 
 class EmbedRequest {
   final String modelDir;
   final String prefix;
-  final List<String> texts; // con su prefijo e5: 'query: ' o 'passage: '
+  final List<String> texts; // con su prefijo, si el modelo lo pide ('query: ' / 'passage: ' en e5)
   final int threads;
   final AiEngine engine;
   const EmbedRequest(this.modelDir, this.texts, {this.prefix = 'e5s', this.threads = 2, this.engine = AiEngine.cpu});
 }
 
+/// Tokenizador del modelo de embeddings: Unigram (e5, XLM-R) o BPE (jina, RoBERTa).
+class _EmbedTokenizer {
+  _EmbedTokenizer._(this._encode, this.eosId);
+  final List<int> Function(String) _encode;
+  final int eosId;
+  List<int> encode(String t) => _encode(t);
+
+  static Future<_EmbedTokenizer> load(String path) async {
+    final j = jsonDecode(await File(path).readAsString()) as Map<String, dynamic>;
+    if ((j['model'] as Map)['type'] == 'BPE') {
+      final b = BpeTokenizer.fromJson(j);
+      return _EmbedTokenizer._(b.encodeWithSpecials, b.suffixIds.isEmpty ? 2 : b.suffixIds.last);
+    }
+    final u = UnigramTokenizer.fromJson(j);
+    return _EmbedTokenizer._(u.encode, u.eosId);
+  }
+}
+
 /// Calcula los embeddings normalizados (síncrono; llamar en un isolate).
 Future<List<Float32List>> runEmbedSync(EmbedRequest req) async {
   OrtEnv.instance.init();
-  final tok = await UnigramTokenizer.fromFile(_p(req.modelDir, '${req.prefix}_tokenizer.json'));
+  final tok = await _EmbedTokenizer.load(_p(req.modelDir, '${req.prefix}_tokenizer.json'));
   final cfg = jsonDecode(await File(_p(req.modelDir, '${req.prefix}_config.json')).readAsString()) as Map;
   final hidden = (cfg['hidden_size'] as num).toInt();
   final s = ortOpen(_p(req.modelDir, '${req.prefix}_model_int8.onnx'), req.threads, req.engine);
@@ -200,22 +234,39 @@ double dot(Float32List a, Float32List b) {
 
 class LlmRequest {
   final String modelDir;
-  final String prefix; // qwen3 (0.6B) o qwen3big (1.7B)
+  final String prefix; // qwen3 (0.6B), qwen3big (1.7B) o qwen3think (4B, con razonamiento)
+  final String? modelFile; // por defecto <prefix>_model_int8.onnx
   final String prompt; // conversación completa ya formateada
   final int maxTokens;
   final int threads;
   final AiEngine engine;
   final bool stopAtJsonEnd; // corta al cerrar el objeto JSON abierto por el prompt
+
+  /// Modo razonamiento: el prompt termina en `<think>\n`; el modelo piensa
+  /// hasta `</think>` o hasta [thinkBudget] tokens y después se fuerza
+  /// `</think>` + [afterThink] (el inicio de la ficha) y sigue la respuesta.
+  final int thinkBudget;
+  final String afterThink;
+  final String thinkStart; // comienzo del razonamiento que ya trae el prompt (para enseñarlo)
   const LlmRequest({
     required this.modelDir,
     this.prefix = 'qwen3',
+    this.modelFile,
     required this.prompt,
     this.maxTokens = 120,
     this.threads = 4,
     this.engine = AiEngine.cpu,
     this.stopAtJsonEnd = true,
+    this.thinkBudget = 0,
+    this.afterThink = '',
+    this.thinkStart = '',
   });
+
+  String get file => modelFile ?? '${prefix}_model_int8.onnx';
 }
+
+/// Texto que se enseña mientras el modelo razona (lo último que ha pensado).
+const thinkingLabel = 'Razonando: ';
 
 /// Tiempo del último prompt (diagnóstico).
 int prefillMs = 0;
@@ -228,7 +279,10 @@ class LlmResult {
 
   /// Motor con el que se ejecutó (CPU, CUDA, DirectML…).
   final String engineLabel;
-  const LlmResult(this.text, this.ids, this.promptTokens, this.time, [this.engineLabel = 'CPU']);
+
+  /// Razonamiento del modelo antes de la ficha (vacío sin modo razonamiento).
+  final String thought;
+  const LlmResult(this.text, this.ids, this.promptTokens, this.time, [this.engineLabel = 'CPU', this.thought = '']);
 }
 
 class LlmJob {
@@ -322,12 +376,14 @@ Future<LlmResult> runLlmSync(LlmRequest req, [void Function(String)? onPartial])
   final vocabSize = (cfg['vocab_size'] as num).toInt();
   final tok = await BpeTokenizer.fromFile(_p(req.modelDir, '${req.prefix}_tokenizer.json'));
   final eos = <int>{
-    for (final k in ['<|im_end|>', '<|endoftext|>']) ?tok.vocab[k],
+    for (final k in ['<|im_end|>', '<|endoftext|>', '<|end_of_text|>']) ?tok.vocab[k],
     if (cfg['eos_token_id'] is num) (cfg['eos_token_id'] as num).toInt(),
+    if (cfg['eos_token_id'] is List) for (final e in cfg['eos_token_id'] as List) (e as num).toInt(),
   };
+  final thinkEnd = tok.vocab['</think>'];
   final ids = tok.encode(req.prompt);
   final ro = OrtRunOptions();
-  final opened = ortOpenAccel(_p(req.modelDir, '${req.prefix}_model_int8.onnx'), req.threads, req.engine);
+  final opened = ortOpenAccel(_p(req.modelDir, req.file), req.threads, req.engine);
   final s = opened.session;
   final outNames = s.outputNames;
   final logitsIdx = outNames.indexOf('logits');
@@ -376,13 +432,37 @@ Future<LlmResult> runLlmSync(LlmRequest req, [void Function(String)? onPartial])
       logits = step(ids.sublist(i, math.min(ids.length, i + 64)));
     }
     prefillMs = sw.elapsedMilliseconds;
+    int argmax(Float32List l) {
+      var best = 0;
+      for (var i = 1; i < l.length; i++) {
+        if (l[i] > l[best]) best = i;
+      }
+      return best;
+    }
+
+    // razonamiento: hasta </think> o el presupuesto; luego se fuerza el inicio de la ficha
+    final thoughtIds = <int>[];
+    if (req.thinkBudget > 0) {
+      while (true) {
+        final best = argmax(logits);
+        if (best == thinkEnd || eos.contains(best) || thoughtIds.length >= req.thinkBudget) break;
+        thoughtIds.add(best);
+        if (onPartial != null && thoughtIds.length % 4 == 0) {
+          final t = (req.thinkStart + tok.decode(thoughtIds)).trim().replaceAll(RegExp(r'\s+'), ' ');
+          onPartial('$thinkingLabel${t.length > 240 ? '…${t.substring(t.length - 240)}' : t}');
+        }
+        logits = step([best]);
+      }
+      final forced = tok.encode('\n</think>\n${req.afterThink}');
+      for (var i = 0; i < forced.length; i += 64) {
+        logits = step(forced.sublist(i, math.min(forced.length, i + 64)));
+      }
+    }
+    final thought = thoughtIds.isEmpty ? '' : (req.thinkStart + tok.decode(thoughtIds)).trim();
     final outIds = <int>[];
     var text = '';
     for (var k = 0; k < req.maxTokens; k++) {
-      var best = 0;
-      for (var i = 1; i < logits.length; i++) {
-        if (logits[i] > logits[best]) best = i;
-      }
+      final best = argmax(logits);
       if (eos.contains(best)) break;
       outIds.add(best);
       text = tok.decode(outIds);
@@ -390,7 +470,7 @@ Future<LlmResult> runLlmSync(LlmRequest req, [void Function(String)? onPartial])
       if (req.stopAtJsonEnd && _jsonClosed(text)) break;
       logits = step([best]);
     }
-    return LlmResult(text, outIds, ids.length, sw.elapsed, opened.ep.label);
+    return LlmResult(text, outIds, ids.length, sw.elapsed, opened.ep.label, thought);
   } finally {
     for (final v in past.values) {
       v.release();

@@ -16,8 +16,13 @@ class BpeTokenizer {
   final bool _nfc;
   final Map<String, List<int>> _cache = {};
 
+  /// Tokens especiales que pone el post-procesador antes y después del texto
+  /// (RoBERTa: <s> ... </s>; Llama 3: <|begin_of_text|> ...).
+  final List<int> prefixIds;
+  final List<int> suffixIds;
+
   BpeTokenizer._(this.vocab, this.idToToken, this._ranks, this._added, this.special, this.splitDigits, this._words,
-      this._nfc);
+      this._nfc, this.prefixIds, this.suffixIds);
 
   static Future<BpeTokenizer> fromFile(String path) async =>
       fromJson(jsonDecode(await File(path).readAsString()) as Map<String, dynamic>);
@@ -66,8 +71,50 @@ class BpeTokenizer {
 
     scan(j['pre_tokenizer']);
     final nfc = jsonEncode(j['normalizer'] ?? const {}).contains('"NFC"');
-    return BpeTokenizer._(vocab, itos, ranks, added, special, digits, split ?? _gpt2, nfc);
+    final (pre_, post_) = _postProcessor(j['post_processor'], vocab);
+    return BpeTokenizer._(vocab, itos, ranks, added, special, digits, split ?? _gpt2, nfc, pre_, post_);
   }
+
+  /// Tokens que añade el post-procesador de Hugging Face a una sola frase.
+  static (List<int>, List<int>) _postProcessor(Object? p, Map<String, int> vocab) {
+    if (p is! Map) return (const [], const []);
+    int? idOf(Object? e) => e is List && e.length == 2 ? (e[1] as num).toInt() : null;
+    switch (p['type']) {
+      case 'RobertaProcessing':
+      case 'BertProcessing':
+        final c = idOf(p['cls']), s = idOf(p['sep']);
+        return ([?c], [?s]);
+      case 'TemplateProcessing':
+        final before = <int>[], after = <int>[];
+        var seen = false;
+        final specials = p['special_tokens'] as Map? ?? const {};
+        for (final it in (p['single'] as List? ?? const [])) {
+          if (it is! Map) continue;
+          if (it.containsKey('Sequence')) {
+            seen = true;
+          } else if (it['SpecialToken'] is Map) {
+            final name = it['SpecialToken']['id'] as String;
+            final ids = (specials[name]?['ids'] as List?)?.map((e) => (e as num).toInt()) ??
+                [if (vocab[name] != null) vocab[name]!];
+            (seen ? after : before).addAll(ids);
+          }
+        }
+        return (before, after);
+      case 'Sequence':
+        final before = <int>[], after = <int>[];
+        for (final q in (p['processors'] as List? ?? const [])) {
+          final (b, a) = _postProcessor(q, vocab);
+          before.addAll(b);
+          after.addAll(a);
+        }
+        return (before, after);
+    }
+    return (const [], const []);
+  }
+
+  /// Como [encode] y con los tokens del post-procesador (lo que da
+  /// `tokenizer.encode(texto)` de Hugging Face por defecto).
+  List<int> encodeWithSpecials(String text) => [...prefixIds, ...encode(text), ...suffixIds];
 
   /// Adapta una expresión regular de Hugging Face (Oniguruma) a Dart: los
   /// grupos `(?i:...)` sin distinguir mayúsculas pasan a clases [aA].

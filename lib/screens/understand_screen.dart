@@ -1,9 +1,11 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../ai/comprehension.dart';
+import '../ai/learned_examples.dart';
 import '../ai/local_text.dart';
 import '../ai/model_gate.dart';
 import '../ai/model_manager.dart';
+import '../engine/comprehension_aids.dart' show fichaJson;
 import '../engine/designer.dart';
 import '../engine/model.dart';
 import '../engine/parser.dart' show stairForms, railForms;
@@ -30,6 +32,7 @@ class _UnderstandScreenState extends State<UnderstandScreen> {
   final Map<String, Object> _overrides = {};
   bool _embedBusy = false, _llmBusy = false, _noModels = false;
   String _partial = '';
+  String _thought = ''; // razonamiento del LLM (modelos con modo razonamiento)
   String? _aiError;
   LlmJob? _job;
 
@@ -84,6 +87,7 @@ class _UnderstandScreenState extends State<UnderstandScreen> {
         });
         final r = await _job!.future;
         _llm = parseLlmJson(r.text, llmSeed(type));
+        _thought = r.thought;
       } catch (e) {
         if (!'$e'.contains('Cancelado')) _aiError = 'Razonamiento: $e';
       }
@@ -100,12 +104,36 @@ class _UnderstandScreenState extends State<UnderstandScreen> {
   }
 
   void _calc() {
+    _learn();
     try {
       final d = designFromSpec(u.spec, widget.prompt);
       Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => ProjectScreen(design: d)));
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo calcular: $e')));
     }
+  }
+
+  /// Si el usuario ha corregido la ficha, la guarda como ejemplo para el LLM
+  /// (con lo que dice el texto y lo cambiado; no los valores de serie).
+  void _learn() {
+    if (_overrides.isEmpty) return;
+    final s = u.spec;
+    final all = <String, Object>{
+      'length': s.length,
+      'width': s.width,
+      'height': s.height,
+      'roofing': s.roofing,
+      'finish': s.finish,
+      if (_overrides['city'] case final Object c) 'city': c,
+      'use': s.use,
+      'liveLoad': (s.liveLoad * 100).roundToDouble(),
+      'levels': s.levels,
+    };
+    final keep = <String, Object>{
+      for (final e in all.entries)
+        if (u.sources[e.key] == DataSource.user || u.sources[e.key] == DataSource.text) e.key: e.value
+    };
+    LearnedExamples.instance.add(widget.prompt, fichaJson(u.type, keep)).ignore();
   }
 
   // --- edición de la ficha ----------------------------------------------------
@@ -304,6 +332,16 @@ class _UnderstandScreenState extends State<UnderstandScreen> {
                       ]),
                     ),
                   ),
+                if (!_llmBusy && _thought.isNotEmpty)
+                  Card(
+                    child: ExpansionTile(
+                      leading: const Icon(Icons.psychology_alt_outlined),
+                      title: const Text('Cómo lo ha razonado la IA'),
+                      subtitle: const Text('Solo se usan los datos que respalda tu texto'),
+                      childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                      children: [SelectableText(_thought, style: const TextStyle(fontSize: 12))],
+                    ),
+                  ),
                 if (_noModels)
                   Card(
                     child: ListTile(
@@ -398,6 +436,45 @@ class _UnderstandScreenState extends State<UnderstandScreen> {
                           () => _editText('use', 'Uso', 'Para qué es')),
                   ]),
                 ),
+                if (u.warnings.isNotEmpty)
+                  Card(
+                    color: cs.errorContainer,
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Row(children: [
+                          Icon(Icons.warning_amber, color: cs.onErrorContainer, size: 20),
+                          const SizedBox(width: 6),
+                          Text('Revisa estos datos',
+                              style: Theme.of(context).textTheme.titleSmall?.copyWith(color: cs.onErrorContainer)),
+                        ]),
+                        const SizedBox(height: 6),
+                        for (final w in u.warnings)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 4),
+                            child: Text('•  $w', style: TextStyle(fontSize: 13, color: cs.onErrorContainer)),
+                          ),
+                      ]),
+                    ),
+                  ),
+                if (u.questions.isNotEmpty)
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text('Para afinar', style: Theme.of(context).textTheme.titleSmall),
+                        for (final q in u.questions) ...[
+                          const SizedBox(height: 8),
+                          Text(q.text, style: const TextStyle(fontSize: 13)),
+                          const SizedBox(height: 4),
+                          Wrap(spacing: 6, runSpacing: 4, children: [
+                            for (final (label, value) in q.options)
+                              ActionChip(label: Text(label), onPressed: () => _set(q.field, value)),
+                          ]),
+                        ],
+                      ]),
+                    ),
+                  ),
                 if (u.notes.isNotEmpty || s.notes.isNotEmpty)
                   Card(
                     child: Padding(
