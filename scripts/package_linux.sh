@@ -75,7 +75,10 @@ deps="$(
     for cand in "$so" "$(realpath "$so")"; do
       # dpkg -S sale con 1 si el archivo no es de ningún paquete: se prueba el siguiente
       pkg="$( { dpkg -S "$cand" 2>/dev/null || :; } | awk -F': ' -v p="$cand" '$2 == p && !n++ {print $1}')"
-      if [[ -n "$pkg" ]]; then echo "${pkg%%:*}"; break; fi
+      # Si varios paquetes tienen el archivo («a, b»), se descartan los JDK que traen los
+      # runners de GitHub (temurin-*-jdk también registra bibliotecas del sistema).
+      pkg="$(echo "$pkg" | tr ',' '\n' | sed 's/^ *//; s/:.*//' | grep -Ev '^$|temurin|jdk|jre' | head -1 || :)"
+      if [[ -n "$pkg" ]]; then echo "$so -> $pkg" >&2; echo "$pkg"; break; fi
     done
   done | sort -u | paste -sd, | sed 's/,/, /g'
 )"
