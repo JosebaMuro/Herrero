@@ -163,7 +163,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev \
-            curl git unzip xz-utils zip file xvfb
+            curl git unzip xz-utils zip file xvfb desktop-file-utils
       # Flutter no publica un archivo del SDK para Linux ARM64: se clona la versión
       # y el propio `flutter` descarga el SDK de Dart de arm64 al arrancar.
       - name: Flutter ${{ env.FLUTTER_VERSION }} (arm64)

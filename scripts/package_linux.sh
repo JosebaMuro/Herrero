@@ -60,13 +60,24 @@ ln -s /opt/herrero/herrero-tui "$D/usr/bin/herrero-tui"
 desktop /opt/herrero/herrero herrero > "$D/usr/share/applications/herrero.desktop"
 cp "$ICON" "$D/usr/share/pixmaps/herrero.png"
 
-# Dependencias: paquete del sistema de cada biblioteca enlazada que no va en el bundle
+# Dependencias: paquete del sistema de cada biblioteca que el bundle pide directamente
+# (NEEDED, no las transitivas: así no se cuelan nombres propios de Ubuntu, como
+# libjpeg-turbo8, que no existen en Raspberry Pi OS / Debian).
 deps="$(
   for f in "$BUNDLE/herrero" "$BUNDLE/herrero-tui" "$BUNDLE"/lib/*.so*; do
-    LD_LIBRARY_PATH="$BUNDLE/lib" ldd "$f" 2>/dev/null | awk '/=> \//{print $3}'
-  done | sort -u | grep -v "^$BUNDLE/" | while read -r so; do
-    dpkg -S "$so" 2>/dev/null || dpkg -S "$(realpath "$so")" 2>/dev/null || true
-  done | cut -d: -f1 | sort -u | paste -sd, | sed 's/,/, /g'
+    paths="$(LD_LIBRARY_PATH="$BUNDLE/lib" ldd "$f" 2>/dev/null || true)"
+    # readelf falla con lo que no es ELF (o si no hay bibliotecas en lib/): se omite
+    { readelf -d "$f" 2>/dev/null || :; } | sed -n 's/.*(NEEDED).*\[\(.*\)\]/\1/p' | while read -r name; do
+      if [[ -e "$BUNDLE/lib/$name" ]]; then continue; fi
+      echo "$paths" | awk -v n="$name" '$1 == n && $3 ~ /^\// {print $3}'
+    done
+  done | sort -u | while read -r so; do
+    for cand in "$so" "$(realpath "$so")"; do
+      # dpkg -S sale con 1 si el archivo no es de ningún paquete: se prueba el siguiente
+      pkg="$( { dpkg -S "$cand" 2>/dev/null || :; } | awk -F': ' -v p="$cand" '$2 == p && !n++ {print $1}')"
+      if [[ -n "$pkg" ]]; then echo "${pkg%%:*}"; break; fi
+    done
+  done | sort -u | paste -sd, | sed 's/,/, /g'
 )"
 [[ -n "$deps" ]] || deps="libc6, libstdc++6, libgtk-3-0"
 echo "Depends: $deps"
