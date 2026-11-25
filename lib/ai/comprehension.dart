@@ -17,8 +17,14 @@ class Comprehension {
   ComprehensionEngine? _engine;
 
   Future<ComprehensionEngine> _get() async {
-    final dir = (await ModelManager.instance.dir('reason')).path;
-    if (_engine?.dir != dir) _engine = ComprehensionEngine(dir);
+    final mgr = ModelManager.instance;
+    final dir = (await mgr.dir(mgr.embedder.subdir)).path;
+    final reasonDir = (await mgr.dir(mgr.reasoner.subdir)).path;
+    final spec = embedSpecFor(mgr.embedder.files.first.split('_').first);
+    final e = _engine;
+    if (e == null || e.dir != dir || e.reasonDir != reasonDir || e.embed.prefix != spec.prefix) {
+      _engine = ComprehensionEngine(dir, reasonDir: reasonDir, embed: spec);
+    }
     return _engine!;
   }
 

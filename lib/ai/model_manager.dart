@@ -27,6 +27,7 @@ const modelsRelease = 'https://github.com/JosebaMuro/Herrero/releases/download/m
 const ocrRelease = 'https://github.com/JosebaMuro/Herrero/releases/download/models-ocr-v1';
 const vlmRelease = 'https://github.com/JosebaMuro/Herrero/releases/download/models-vlm-v1';
 const reasonRelease = 'https://github.com/JosebaMuro/Herrero/releases/download/models-reason-v1';
+const reasonEsRelease = 'https://github.com/JosebaMuro/Herrero/releases/download/models-reason-es-v1';
 
 /// Paso de la app que usa un modelo de IA.
 enum ModelTask { understand, reason, photo, plans, sketch }
@@ -215,6 +216,59 @@ const catalog = <ModelVariant>[
       ('Modelo de lenguaje (int8)', 'qwen3_model_int8.onnx'),
       ('Tokenizador', 'qwen3_tokenizer.json'),
       ('Configuración', 'qwen3_config.json'),
+    ],
+  ),
+  ModelVariant(
+    id: 'jina-es',
+    task: ModelTask.understand,
+    name: 'Comprensión en castellano · jina-embeddings-v2-base-es',
+    summary: 'Alternativa al modelo multilingüe: embeddings entrenados sobre todo con texto en español (y algo de '
+        'inglés), de Jina AI (Apache-2.0), en int8. Distingue mejor los matices de las peticiones en castellano; '
+        'algo más grande y lento que e5-small.',
+    unetFile: '',
+    minRamGb: 2,
+    recRamGb: 3,
+    quality: 'Reconocimiento de la tipología en castellano: muy bueno',
+    speed: 'alrededor de 1 s por petición',
+    approxBytes: 165000000,
+    release: reasonEsRelease,
+    subdir: 'reason-es',
+    fileList: ['jinaes_model_int8.onnx', 'jinaes_tokenizer.json', 'jinaes_config.json'],
+    partList: [
+      ('Modelo de embeddings (int8)', 'jinaes_model_int8.onnx'),
+      ('Tokenizador', 'jinaes_tokenizer.json'),
+      ('Configuración', 'jinaes_config.json'),
+    ],
+  ),
+  ModelVariant(
+    id: 'smollm3-3b',
+    task: ModelTask.reason,
+    name: 'Razonamiento en castellano · SmolLM3 3B',
+    summary: 'Modelo de lenguaje con modo razonamiento (Hugging Face, Apache-2.0), con el castellano entre sus '
+        'idiomas principales. Antes de rellenar la ficha piensa qué medida es cada número (luz, largo, alto, '
+        'separación…), así entiende descripciones largas y complejas. Pesos de 4 bits; para PC.',
+    unetFile: '',
+    minRamGb: 6,
+    recRamGb: 8,
+    pcOnly: true,
+    quality: 'Descripciones complejas (varias medidas, cargas, usos): muy buena',
+    speed: '1–3 min por petición en CPU (menos con gráfica)',
+    approxBytes: 2900000000,
+    release: reasonEsRelease,
+    subdir: 'reason-es',
+    fileList: [
+      'smollm3_model_q4.onnx',
+      'smollm3_model_q4.onnx_data',
+      'smollm3_model_q4.onnx_data_1',
+      'smollm3_tokenizer.json',
+      'smollm3_config.json',
+    ],
+    partList: [
+      ('Modelo de lenguaje (grafo)', 'smollm3_model_q4.onnx'),
+      ('Pesos de 4 bits (1/2)', 'smollm3_model_q4.onnx_data'),
+      ('Pesos de 4 bits (2/2)', 'smollm3_model_q4.onnx_data_1'),
+      ('Tokenizador', 'smollm3_tokenizer.json'),
+      ('Configuración', 'smollm3_config.json'),
     ],
   ),
   ModelVariant(
@@ -416,6 +470,10 @@ class ModelManager extends ChangeNotifier {
   /// Modelo de visión elegido (si hay varios instalados).
   String? activeSketchId;
 
+  /// Modelos de comprensión y de razonamiento elegidos (multilingüe o en castellano).
+  String? activeUnderstandId;
+  String? activeReasonId;
+
   /// Ficheros importados a mano por carpeta: nombre -> {size, sha256, official, from, date}.
   final Map<String, Map<String, dynamic>> imported = {};
 
@@ -462,6 +520,8 @@ class ModelManager extends ChangeNotifier {
       if (!enginesForPlatform().contains(engine)) engine = AiEngine.auto;
       fidelity = (sp.getInt('ai.fidelity') ?? 1).clamp(0, 2);
       activeSketchId = sp.getString('ai.active.sketch');
+      activeUnderstandId = sp.getString('ai.active.understand');
+      activeReasonId = sp.getString('ai.active.reason');
       for (final t in ModelTask.values) {
         final v = sp.getInt('ai.engine.${t.name}');
         if (v != null && v >= 0 && v < AiEngine.values.length && taskEngineChoices().contains(AiEngine.values[v])) {
@@ -510,6 +570,13 @@ class ModelManager extends ChangeNotifier {
       await sp.setInt('ai.accel', engine.index);
       await sp.setInt('ai.fidelity', fidelity);
       if (activeSketchId != null) await sp.setString('ai.active.sketch', activeSketchId!);
+      for (final (k, v) in [('ai.active.understand', activeUnderstandId), ('ai.active.reason', activeReasonId)]) {
+        if (v == null) {
+          await sp.remove(k);
+        } else {
+          await sp.setString(k, v);
+        }
+      }
       for (final t in ModelTask.values) {
         final e = taskEngine[t];
         if (e == null) {
@@ -897,6 +964,8 @@ class ModelManager extends ChangeNotifier {
       activeId = inst.isEmpty ? null : inst.first.id;
     }
     if (activeSketchId == m.id) activeSketchId = null;
+    if (activeUnderstandId == m.id) activeUnderstandId = null;
+    if (activeReasonId == m.id) activeReasonId = null;
     await savePrefs();
     await refreshDisk();
   }
@@ -908,6 +977,8 @@ class ModelManager extends ChangeNotifier {
   ModelVariant? activeFor(ModelTask t) {
     if (t == ModelTask.photo) return ready ? active : null;
     if (t == ModelTask.sketch) return vlmReady ? vlm : null;
+    if (t == ModelTask.understand) return embedReady ? embedder : null;
+    if (t == ModelTask.reason) return reasonReady ? reasoner : null;
     final m = catalog.firstWhere((m) => m.task == t);
     return status[m.id]?.state == DlState.installed ? m : null;
   }
@@ -916,7 +987,10 @@ class ModelManager extends ChangeNotifier {
   Future<void> activate(ModelVariant m) async {
     if (m.task == ModelTask.photo) activeId = m.id;
     if (m.task == ModelTask.sketch) activeSketchId = m.id;
+    if (m.task == ModelTask.understand) activeUnderstandId = m.id;
+    if (m.task == ModelTask.reason) activeReasonId = m.id;
     await savePrefs();
+    notifyListeners();
   }
 
   ModelVariant? get active => activeId == null ? null : catalog.where((m) => m.id == activeId).firstOrNull;
@@ -967,9 +1041,18 @@ class ModelManager extends ChangeNotifier {
 
   bool get vlmReady => status[vlm.id]?.state == DlState.installed;
 
-  /// Comprensión (embeddings) y razonamiento (LLM) de la petición.
-  ModelVariant get embedder => catalog.firstWhere((m) => m.task == ModelTask.understand);
-  ModelVariant get reasoner => catalog.firstWhere((m) => m.task == ModelTask.reason);
+  /// Comprensión (embeddings) y razonamiento (LLM) de la petición: el elegido
+  /// si está instalado; si no, el primero instalado (multilingüe antes que
+  /// castellano); si no hay ninguno, el multilingüe.
+  ModelVariant get embedder => _chosen(ModelTask.understand, activeUnderstandId);
+  ModelVariant get reasoner => _chosen(ModelTask.reason, activeReasonId);
+
+  ModelVariant _chosen(ModelTask t, String? id) {
+    final all = catalog.where((m) => m.task == t).toList();
+    final c = all.where((m) => m.id == id).firstOrNull;
+    if (c != null && status[c.id]?.state == DlState.installed) return c;
+    return all.where((m) => status[m.id]?.state == DlState.installed).firstOrNull ?? all.first;
+  }
   bool get embedReady => status[embedder.id]?.state == DlState.installed;
   bool get reasonReady => status[reasoner.id]?.state == DlState.installed;
 

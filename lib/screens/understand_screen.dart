@@ -30,6 +30,7 @@ class _UnderstandScreenState extends State<UnderstandScreen> {
   final Map<String, Object> _overrides = {};
   bool _embedBusy = false, _llmBusy = false, _noModels = false;
   String _partial = '';
+  String _thought = ''; // razonamiento del LLM (modelos con modo razonamiento)
   String? _aiError;
   LlmJob? _job;
 
@@ -84,6 +85,7 @@ class _UnderstandScreenState extends State<UnderstandScreen> {
         });
         final r = await _job!.future;
         _llm = parseLlmJson(r.text, llmSeed(type));
+        _thought = r.thought;
       } catch (e) {
         if (!'$e'.contains('Cancelado')) _aiError = 'Razonamiento: $e';
       }
@@ -302,6 +304,16 @@ class _UnderstandScreenState extends State<UnderstandScreen> {
                             child: Text(_partial, style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant)),
                           ),
                       ]),
+                    ),
+                  ),
+                if (!_llmBusy && _thought.isNotEmpty)
+                  Card(
+                    child: ExpansionTile(
+                      leading: const Icon(Icons.psychology_alt_outlined),
+                      title: const Text('Cómo lo ha razonado la IA'),
+                      subtitle: const Text('Solo se usan los datos que respalda tu texto'),
+                      childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                      children: [SelectableText(_thought, style: const TextStyle(fontSize: 12))],
                     ),
                   ),
                 if (_noModels)
