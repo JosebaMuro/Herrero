@@ -9,10 +9,12 @@ Los paquetes CUDA y OpenVINO no van en el instalador: la app los descarga aparte
 Uso (después de `flutter pub get`):
     python scripts/ort_runtime.py android|windows|linux|ios
 
+En Linux se toma la biblioteca de la arquitectura que compila (x64 o arm64).
+
 En iOS no hay biblioteca que copiar: el paquete enlaza el pod
 `onnxruntime-objc` (estático) y aquí se cambia su versión en el podspec.
 """
-import hashlib, io, json, os, shutil, sys, tarfile, time, urllib.error, urllib.request, zipfile
+import hashlib, io, json, os, platform as platform_mod, shutil, sys, tarfile, time, urllib.error, urllib.request, zipfile
 
 ANDROID = 'https://repo1.maven.org/maven2/com/microsoft/onnxruntime/onnxruntime-android/1.20.0/onnxruntime-android-1.20.0.aar'
 # ONNX Runtime 1.20.1 con DirectML y DirectML 1.15.2 (la versión que pide su nuspec)
@@ -130,6 +132,16 @@ def patch_bundle_directml(pkg):
     print('  ->', src, 'empaqueta DirectML.dll')
 
 
+def linux_arch():
+    """x64 o arm64 (Raspberry Pi 4/5 con sistema de 64 bits): la de la máquina que compila,
+    o la de HERRERO_ARCH si se fija a mano. El paquete NuGet trae las dos."""
+    arch = os.environ.get('HERRERO_ARCH') or platform_mod.machine()
+    arch = {'x86_64': 'x64', 'amd64': 'x64', 'aarch64': 'arm64'}.get(arch.lower(), arch.lower())
+    if arch not in ('x64', 'arm64'):
+        raise SystemExit('arquitectura de Linux no admitida: ' + arch)
+    return arch
+
+
 def main(platform):
     pkg = package_dir()
     print('paquete:', pkg)
@@ -154,8 +166,10 @@ def main(platform):
         patch_bundle_directml(pkg)
     elif platform == 'linux':
         z = zipfile.ZipFile(io.BytesIO(get(LINUX)))
+        arch = linux_arch()
         dst = os.path.join(pkg, 'linux', 'libonnxruntime.so.1.15.1')  # nombre que carga el paquete
-        with z.open('runtimes/linux-x64/native/libonnxruntime.so') as src, open(dst, 'wb') as out:
+        print('  arquitectura:', arch)
+        with z.open(f'runtimes/linux-{arch}/native/libonnxruntime.so') as src, open(dst, 'wb') as out:
             shutil.copyfileobj(src, out)
         print('  ->', dst, os.path.getsize(dst))
         patch_dll_loader(pkg)

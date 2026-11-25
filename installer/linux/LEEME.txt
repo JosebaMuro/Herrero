@@ -8,6 +8,8 @@ Herrero para Linux (x86-64, Ubuntu 22.04 LTS o posterior)
                      ~/.local/share/applications/
 4. (Opcional) Ubuntu en modo texto con NVIDIA/CUDA: sudo ./herrero/instalar-ubuntu.sh
 
+Raspberry Pi 4/5 (ARM64): usa Herrero-linux-arm64.deb o Herrero-linux-arm64.AppImage.
+
 Requisitos: GTK 3 (viene en Ubuntu, Debian, Fedora, Mint…).
 Para la ubicación por GPS hace falta GeoClue (paquete geoclue-2.0); si no está,
 escribe tu población en Precios > Ubicación.
