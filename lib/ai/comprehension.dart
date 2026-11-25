@@ -45,9 +45,11 @@ class Comprehension {
     final mgr = ModelManager.instance;
     if (!mgr.reasonReady) return null;
     final engine = await _get();
-    final examples = await _examples(engine, prompt, type);
+    final prefix = mgr.reasoner.files.first.split('_').first;
+    // el modelo que razona lee más despacio: con dos ejemplos le basta
+    final examples = await _examples(engine, prompt, type, k: llmThinks(prefix) ? 2 : 3);
     final job = engine.read(prompt, type, onPartial,
-        prefix: mgr.reasoner.files.first.split('_').first,
+        prefix: prefix,
         threads: mgr.device?.recommendedThreads ?? 4,
         engine: mgr.engineFor(ModelTask.reason),
         examples: examples);
@@ -58,17 +60,18 @@ class Comprehension {
 
   /// Ejemplos para el LLM: los de serie más las correcciones del usuario,
   /// elegidos por parecido de significado (o por palabras sin embeddings).
-  Future<List<(String, String)>> _examples(ComprehensionEngine engine, String prompt, StructureType type) async {
+  Future<List<(String, String)>> _examples(ComprehensionEngine engine, String prompt, StructureType type,
+      {int k = 3}) async {
     final pool = [...llmExamplePool, ...await LearnedExamples.instance.load()];
     final mgr = ModelManager.instance;
     if (mgr.embedReady) {
       try {
         return await ModelGate.instance.run(
             ModelTask.understand,
-            () => engine.examplesFor(prompt, type, pool,
+            () => engine.examplesFor(prompt, type, pool, k: k,
                 threads: (mgr.device?.recommendedThreads ?? 4).clamp(1, 4), engine: mgr.engineFor(ModelTask.understand)));
       } catch (_) {}
     }
-    return pickExamples(prompt, type, pool: pool);
+    return pickExamples(prompt, type, pool: pool, k: k);
   }
 }

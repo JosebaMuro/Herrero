@@ -154,7 +154,7 @@ void main() {
       final p = r['prompt'] as String;
       final type = StructureType.values.byName(r['tipo'] as String);
       final partial = <String>[];
-      final ex = await ComprehensionEngine(dir, embed: jinaEsSpec).examplesFor(p, type, llmExamplePool);
+      final ex = await ComprehensionEngine(dir, embed: jinaEsSpec).examplesFor(p, type, llmExamplePool, k: 2);
       final res = await runLlmSync(llmRequestFor(dir, 'qwen3think', p, type, examples: ex), partial.add);
       final j = parseLlmJson(res.text, llmSeed(type));
       // ignore: avoid_print
