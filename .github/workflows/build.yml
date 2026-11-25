@@ -1,4 +1,4 @@
-name: Compilar Herrero (Android, Windows, Linux e iOS)
+name: Compilar Herrero (Android, Windows, Linux x64/ARM64 e iOS)
 
 on:
   push:
@@ -151,6 +151,70 @@ jobs:
             Herrero-linux-x64.tar.gz
             instalar-herrero-ubuntu.sh
 
+  linux-arm64:
+    # Raspberry Pi 4/5 con Raspberry Pi OS de 64 bits (Debian 12, glibc 2.36) y otros ARM64.
+    # ubuntu-22.04-arm: glibc 2.35, así que el binario vale para Debian 12 y Ubuntu 22.04+.
+    name: Linux ARM64 (.deb y .AppImage)
+    runs-on: ubuntu-22.04-arm
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dependencias de compilación (GTK) y de prueba
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev \
+            curl git unzip xz-utils zip file xvfb
+      # Flutter no publica un archivo del SDK para Linux ARM64: se clona la versión
+      # y el propio `flutter` descarga el SDK de Dart de arm64 al arrancar.
+      - name: Flutter ${{ env.FLUTTER_VERSION }} (arm64)
+        run: |
+          git clone --depth 1 -b "$FLUTTER_VERSION" https://github.com/flutter/flutter.git "$HOME/flutter"
+          echo "$HOME/flutter/bin" >> "$GITHUB_PATH"
+          "$HOME/flutter/bin/flutter" config --no-analytics --enable-linux-desktop
+          "$HOME/flutter/bin/flutter" --version
+      - run: flutter pub get
+      - name: ONNX Runtime 1.20 (aarch64) y cargador
+        run: python3 scripts/ort_runtime.py linux
+      - run: flutter build linux --release
+      - name: TUI de terminal (herrero-tui)
+        run: scripts/build_tui.sh build/linux/arm64/release/bundle/herrero-tui
+      - name: Comprobar que todo es ARM64
+        run: |
+          B=build/linux/arm64/release/bundle
+          for f in $B/herrero $B/herrero-tui $B/lib/libonnxruntime.so.1.15.1; do
+            file -L "$f"
+            file -L "$f" | grep -q "ARM aarch64" || { echo "::error::$f no es ARM64"; exit 1; }
+          done
+      - name: Empaquetar (.deb y .AppImage)
+        run: scripts/package_linux.sh build/linux/arm64/release/bundle arm64 dist
+      - name: Probar el .deb instalado
+        run: |
+          sudo apt-get install -y ./dist/Herrero-linux-arm64.deb
+          herrero-tui --ayuda
+          herrero-tui --calcular "marquesina para 2 coches de 5,5 x 5 m y 2,4 m de alto, panel sándwich, galvanizada" \
+            --sin-ia --exportar /tmp/herrero-out
+          ls -R /tmp/herrero-out
+          herrero-tui --gpu --motor cpu
+          python3 test/tui/pty_smoke.py /usr/bin/herrero-tui
+      - name: Probar el .AppImage
+        run: |
+          export APPIMAGE_EXTRACT_AND_RUN=1
+          ./dist/Herrero-linux-arm64.AppImage --tui --ayuda
+          ./dist/Herrero-linux-arm64.AppImage --tui --calcular "barandilla de 6 m" --sin-ia | head -5
+      - name: Arrancar la app de escritorio (Xvfb, 20 s)
+        continue-on-error: true
+        run: |
+          set +e
+          timeout 20 xvfb-run -a herrero; rc=$?
+          echo "código de salida: $rc (124 = seguía abierta)"
+          test $rc = 124
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Herrero-linux-arm64
+          path: |
+            dist/Herrero-linux-arm64.deb
+            dist/Herrero-linux-arm64.AppImage
+
   instalador:
     name: Instalador de la suite en Ubuntu 24.04
     runs-on: ubuntu-24.04
@@ -217,11 +281,11 @@ jobs:
           path: Herrero-ios.ipa
 
   release:
-    # iOS no bloquea la publicación de Android y Windows si falla
+    # iOS y Linux ARM64 no bloquean la publicación de Android, Windows y Linux x64 si fallan
     if: >-
       always() && needs.android.result == 'success' && needs.windows.result == 'success' && needs.linux.result == 'success' &&
       (startsWith(github.ref, 'refs/tags/v') || contains(github.event.head_commit.message, '[release]'))
-    needs: [android, windows, linux, ios]
+    needs: [android, windows, linux, linux-arm64, ios]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

@@ -133,6 +133,13 @@ Descomprime `Herrero-linux-x64.tar.gz` y ejecuta `herrero/herrero` (app de escri
 GTK 3) o `herrero/herrero-tui` (**TUI de terminal**, también sin escritorio). La ubicación por GPS
 usa GeoClue y la elección de archivos, zenity o kdialog. Ver `LEEME.txt` dentro del paquete.
 
+**Raspberry Pi 4/5 (y otros ARM64)**, con Raspberry Pi OS de **64 bits**:
+- `.deb`: `sudo apt install ./Herrero-linux-arm64.deb`. Queda en el menú (Oficina) y en la terminal
+  como `herrero` y `herrero-tui`. Se quita con `sudo apt remove herrero`.
+- `.AppImage`: `chmod +x Herrero-linux-arm64.AppImage` y ábrelo; `--tui` abre la TUI de terminal.
+  Si no arranca por FUSE, añade `--appimage-extract-and-run` o instala el `.deb`.
+- La IA va en CPU (no hay CUDA). Con 4 GB de RAM usa los modelos ligeros; la foto IA es lenta.
+
 - **TUI**: escribe la petición, revisa la ficha «Lo que he entendido» y recorre el resultado por
   pestañas (resumen, despiece, comprobaciones, uniones, montaje, normativa); exporta CSV, DXF y
   memoria en Markdown. Ctrl+G abre «IA y GPU» (motor, paquete CUDA, modelos y prueba de velocidad).

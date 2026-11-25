@@ -124,6 +124,8 @@ Los binarios se generan con GitHub Actions y se publican en *Releases*:
 - `Herrero-windows-setup.exe` — instalador para Windows 10/11 x64.
 - `Herrero-windows-portable.zip` — versión portable (descomprimir y ejecutar `herrero.exe`).
 - `Herrero-linux-x64.tar.gz` — Linux x86-64 (Ubuntu 22.04 o posterior): app y `herrero-tui`.
+- `Herrero-linux-arm64.deb` y `Herrero-linux-arm64.AppImage` — Linux ARM64: Raspberry Pi 4/5 con
+  Raspberry Pi OS de 64 bits (Debian 12) u otro ARM64 con glibc 2.35 o posterior; app y `herrero-tui`.
 - `instalar-herrero-ubuntu.sh` — instalador para Ubuntu LTS en modo texto (ver arriba).
 - `Herrero-ios.ipa` — iPhone y iPad con iOS 15 o posterior, sin firmar (ver abajo).
 - `Herrero-manual-de-usuario.md` y `Herrero-documentacion-tecnica.md` — documentación.
