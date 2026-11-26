@@ -1,6 +1,6 @@
 # Historial de versiones
 
-## 4.3.0-d (pendiente)
+## 4.3.0-d (2026-11-26)
 
 - **Catálogo de materiales** (`engine/material_catalog.dart`): 36 materiales con sinónimos y
   regionalismos (calaminón, calamina, onduline, chapa estriada, policarbonato alveolar, llanta,
