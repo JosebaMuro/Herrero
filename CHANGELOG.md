@@ -1,5 +1,18 @@
 # Historial de versiones
 
+## 4.3.0-d (pendiente)
+
+- **Catálogo de materiales** (`engine/material_catalog.dart`): 36 materiales con sinónimos y
+  regionalismos (calaminón, calamina, onduline, chapa estriada, policarbonato alveolar, llanta,
+  IPN…), usos, medidas, pesos, aspecto de render y frase para la foto IA. Pestaña *Materiales* con
+  buscador. Cubiertas nuevas: chapa ondulada, placa asfáltica ondulada, policarbonato compacto.
+- **Comprensión**: las secciones de perfil («llanta de 30x5 mm», «tubo 80x80», «170 mm de llanta»)
+  ya no se leen como medidas de la estructura; la IA recibe «Materiales citados» y las secciones
+  marcadas; «4 m de hueco», «a 2,8 m» (altillos), rejas «ancho x alto», «listones horizontales».
+  Banco de 42 descripciones: 92,8 % → 100 % de datos bien.
+- **Barandilla sobre el peto** del balcón: montantes de llanta en U invertida, listones horizontales
+  y soporte de tiestos, con el peto dibujado en el render.
+
 ## 4.3.0 (2026-11-24)
 
 - **Gestor de proyectos**: guardar el proyecto (nombre, cliente, obra, notas), abrirlo, duplicarlo,

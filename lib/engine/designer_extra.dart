@@ -600,6 +600,10 @@ Design _designBarandilla(StructureSpec s, String prompt) {
   final t = normalize(prompt);
   final form = railForms.firstWhere((f) => s.variant.startsWith(f), orElse: () => t.contains('vidrio') ? 'vidrio' : 'barrotes');
   if (form == 'pasamanos a pared') return _designPasamanosPared(s, prompt);
+  if (form == 'sobre peto') {
+    final r = readParapetRail(canonicalize(t));
+    if (r != null) return _designBarandillaPeto(s, prompt, r);
+  }
   final toe = s.variant.contains('rodapié');
   final g = s.grade, fy = g.fy;
   final lx = s.length, hr = s.height, ql = s.liveLoad;

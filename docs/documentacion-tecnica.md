@@ -158,6 +158,30 @@ no tener varios documentos en memoria. `buildPdf` (proyecto completo) usa todos 
   la ficha corregida se guarda (petición, `fichaJson`) como ejemplo.
 - Precedencia de los datos: usuario > texto > deducción de oficio > IA > valor habitual.
 
+### 9.2 Catálogo de materiales (`engine/material_catalog.dart`, v4.3.0-d)
+
+- `materialCatalog`: lista versionada de materiales (`BuildMaterial`): perfiles (IPE, IPN, HEB/HEA,
+  UPN, tubo, llanta, redondo, cuadradillo, T, C/Z), chapas (lisa, lagrimada, perforada, deployé),
+  cubiertas (panel sándwich, imitación teja, chapa grecada/calaminón, chapa ondulada/calamina,
+  policarbonato celular, compacto y grecado, fibrocemento, placa asfáltica, teja, fotovoltaica,
+  lamas), suelos (tramex, colaborante, tablero), cerramientos (bloque, ladrillo, panel de fachada),
+  vidrio laminado y rellenos (mallas, cables, barrotes).
+- Cada material lleva sinónimos normalizados (`aka`), descripción, usos, medidas, peso (`kNm2` en
+  superficies), aspecto de render (`MatLook`, mismos dibujos que `ZPattern`), frase en inglés para la
+  foto IA (`photo`) y el texto que se escribe en la ficha (`fichaText`). En perfiles, `family`
+  enlaza con las tablas de `profiles.dart` para dar la serie y los kg/m.
+- Usos: `materialsIn` (materiales que nombra la petición), `materialFor` (material del texto de la
+  ficha), `materialsForLlm` (bloque «Materiales citados» del mensaje al LLM), `_roofingWeight`
+  (peso de las cubiertas sin regla propia), `_roofLook` y suelos/cerramientos del render,
+  `photoPrompt`/`materialDetails` y la pestaña «Materiales» del catálogo.
+- Para añadir un material basta con otra entrada; los sinónimos van en minúsculas y sin tildes.
+- `maskSections` (parser) tapa las secciones de perfil («llanta de 30x5 mm», «tubo 80x80»,
+  «170 mm de llanta») antes de leer medidas; `readFacts` las pasa al LLM como «sección (no es medida
+  de la estructura)».
+- Barandilla sobre peto (`readParapetRail`, `_designBarandillaPeto`): montantes de llanta en U
+  invertida (altura exterior, vuelo y cara interior anclada al peto), listones horizontales y, si se
+  piden tiestos, vuelo intermedio con dos redondos. Variante `sobre peto` (· tiestos).
+
 ## 10. Plataformas, compilación y publicación
 
 - `flutter pub get`, `python3 scripts/ort_runtime.py <android|windows|linux|ios>`, `flutter build …`.
@@ -176,6 +200,10 @@ no tener varios documentos en memoria. `buildPdf` (proyecto completo) usa todos 
 ## 11. Pruebas
 
 `flutter test` (incluye `test/tui_test.dart`, `accel_test`, `gpu_pack_test`). Nuevas en 4.3:
+- `test/comprehension_bench_test.dart`: banco de 42 descripciones (185 datos) con lo que debe salir en
+  la ficha; exige ≥ 97 % (v4.3.0-c: 92,8 %; v4.3.0-d: 100 %).
+- `test/material_catalog_test.dart`: catálogo, sinónimos y regionalismos, cubierta → peso/foto,
+  secciones que no son medidas y la barandilla de balcón sobre peto.
 - `test/pricing_test.dart`: normalización de materiales, números, lectura de factura y tarifa,
   radio, conversión €/m↔€/kg, niveles de coincidencia, antigüedad, presupuesto sin inventar precios,
   almacén de proyectos (guardar, índice, duplicar, búsqueda, reconstrucción, borrado).

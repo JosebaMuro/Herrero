@@ -500,3 +500,9 @@ const double steelE = 210000;
 const double gammaM0 = 1.05; // CTE DB-SE-A
 const double gammaM1 = 1.05;
 const double gammaM2 = 1.25;
+
+/// Tubo rectangular a medida (p. ej. el que da el cliente y no está en la serie).
+SteelProfile rhsOf(double h, double b, double t) => _rhs(h, b, t);
+
+/// Pletina (llanta) a medida.
+SteelProfile flatOf(double w, double t) => _flat(w, t);

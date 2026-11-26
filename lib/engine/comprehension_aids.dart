@@ -11,6 +11,7 @@
 import 'dart:convert';
 import 'dart:math' as math;
 
+import 'material_catalog.dart';
 import 'model.dart';
 import 'parser.dart';
 import 'vocabulary.dart';
@@ -28,13 +29,14 @@ class Fact {
   final String quote; // trozo del texto
   const Fact(this.label, this.field, this.value, this.unit, this.quote);
 
-  String get line => '$label: ${_fmt(value)} $unit («$quote»)';
+  String get line => unit.isEmpty ? '$label: «$quote»' : '$label: ${_fmt(value)} $unit («$quote»)';
 
   @override
   String toString() => line;
 }
 
-String _fmt(double v) => v.toStringAsFixed(v % 1 == 0 ? 0 : 2).replaceAll('.', ',');
+String _fmt(double v) =>
+    v.toStringAsFixed(v % 1 == 0 ? 0 : ((v * 100 - (v * 100).round()).abs() < 1e-6 ? 2 : 3)).replaceAll('.', ',');
 
 const _n = r'(\d+(?:[.,]\d+)?)';
 const _m = r'\s*(?:m|mts?|metros?)?';
@@ -67,9 +69,22 @@ final _pair = RegExp('$_n$_m\\s*(?:por|x)\\s*$_n$_m(?!\\s+de\\s+(?:fondo|largo|l
 
 /// Lee del texto los datos con su sentido (sin repetir el mismo trozo).
 List<Fact> readFacts(String prompt) {
-  final t = normalize(prompt);
+  final raw = normalize(prompt);
+  // las secciones de perfil («llanta de 30x5 mm») no son medidas de la estructura
+  final t = maskSections(raw);
   final out = <Fact>[];
   final used = <int>{};
+  for (final m in RegExp(r'(?<![a-z])(llantas?|pletinas?|liston(?:es)?|tubos?|angular(?:es)?|cuadradillos?|redondos?|perfil(?:es)?)'
+          r'[a-z ]{0,20}?(\d+(?:[.,]\d+)?\s*x\s*\d+(?:[.,]\d+)?(?:\s*x\s*\d+(?:[.,]\d+)?)?)\s*(?:mm)?')
+      .allMatches(raw)) {
+    out.add(Fact('sección de ${m[1]} (no es medida de la estructura)', null, 0, '', m[0]!.trim()));
+  }
+  final rail = readParapetRail(raw);
+  if (rail != null) {
+    out.add(Fact('altura que sobresale por fuera del peto', null, rail.outer * 1000, 'mm', 'altura exterior'));
+    out.add(Fact('altura de la cara interior (alto_m de la pieza)', 'height', rail.inner, 'm', 'interior'));
+    out.add(Fact('vuelo hacia el interior', null, rail.depth * 1000, 'mm', 'hacia el interior'));
+  }
   double num(String s) => double.parse(s.replaceAll(',', '.'));
   for (final (re, label, field, unit) in _factRules) {
     for (final m in re.allMatches(t)) {
@@ -122,9 +137,18 @@ List<(String, String)> glossaryFor(String prompt, {int max = 6}) {
   for (final (w, d) in _coreTerms) {
     if (has(w)) out.add((w, d));
   }
+  // lo que ya explica el catálogo de materiales no se repite en el glosario
+  final mats = materialsIn(prompt);
   for (final g in glossary) {
     if (out.length >= max) break;
-    final names = [...g.term.split(RegExp(r'\s*/\s*')), ...g.aka].where((w) => w.length >= 4);
+    if (mats.isNotEmpty && materialsIn(g.term).any(mats.contains)) continue;
+    // «Cordón superior / inferior» -> «cordón superior», «cordón inferior» (no «inferior» suelto)
+    final split = g.term.split(RegExp(r'\s*/\s*'));
+    final head = split.first.split(' ');
+    final names = [
+      for (final p in split) head.length > 1 && !p.contains(' ') && p != split.first ? '${head.first} $p' : p,
+      ...g.aka,
+    ].where((w) => w.length >= 4);
     if (out.any((e) => normalize(e.$1) == normalize(g.term))) continue;
     if (names.any(has)) {
       final m = g.meaning.split(RegExp(r'(?<=\.)\s')).first;

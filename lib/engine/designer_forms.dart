@@ -560,3 +560,138 @@ Design _designReja(StructureSpec s, String prompt) {
     surfaces: surfaces,
   );
 }
+
+// ---------------------------------------------------------------------------
+// BARANDILLA SOBRE PETO (a caballo de la albardilla, con soporte de tiestos)
+// ---------------------------------------------------------------------------
+
+/// Barandilla que se monta encima del peto del balcón: cada montante es una
+/// llanta en U invertida (cara exterior, vuelo sobre la albardilla y cara
+/// interior anclada al peto), con listones horizontales por fuera y, si se
+/// pide, redondos a media altura para apoyar tiestos.
+Design _designBarandillaPeto(StructureSpec s, String prompt, ParapetRail r) {
+  final g = s.grade, fy = g.fy;
+  final lx = s.length;
+  final ql = s.liveLoad > 0 ? s.liveLoad : 0.8;
+  final zp = r.parapet ?? 0.60; // coronación del peto
+  final top = zp + r.outer;
+  final d = r.depth;
+  final checks = <Check>[];
+  final warnings = <String>[...s.notes];
+  final members = <Member>[];
+  final post = r.post;
+  final nPosts = r.posts > 0 ? r.posts : math.max(2, (lx / 1.5).ceil() + 1);
+  final sp = lx / (nPosts - 1);
+  final xs = [for (var i = 0; i < nPosts; i++) i * sp];
+  const across = Vec3(0, 1, 0);
+  for (final x in xs) {
+    // cara exterior, vuelo superior, vuelo inferior (apoyo en la albardilla) y cara interior
+    members.add(Member(role: MemberRole.post, profile: post, a: Vec3(x, 0, zp), b: Vec3(x, 0, top), webDir: across));
+    members.add(Member(role: MemberRole.bracket, profile: post, a: Vec3(x, 0, top), b: Vec3(x, d, top)));
+    members.add(Member(role: MemberRole.bracket, profile: post, a: Vec3(x, 0, zp + 0.005), b: Vec3(x, d, zp + 0.005)));
+    members.add(Member(role: MemberRole.post, profile: post, a: Vec3(x, d, top), b: Vec3(x, d, top - r.inner), webDir: across));
+  }
+  // listones horizontales por la cara exterior; el de arriba hace de pasamanos
+  final slat = r.slat;
+  final ys = -(post.b / 2000 + slat.b / 2000);
+  final z0 = zp + 0.03 + slat.h / 2000, z1 = top - slat.h / 2000;
+  for (var k = 0; k < r.slats; k++) {
+    final z = r.slats == 1 ? z1 : z0 + (z1 - z0) * k / (r.slats - 1);
+    members.add(Member(
+        role: k == r.slats - 1 ? MemberRole.handrail : MemberRole.rail,
+        profile: slat,
+        a: Vec3(-0.03, ys, z),
+        b: Vec3(lx + 0.03, ys, z)));
+  }
+  // soporte de tiestos: vuelo intermedio y dos redondos longitudinales
+  SteelProfile? potBar;
+  final zm = zp + r.outer / 2;
+  if (r.pots) {
+    const potLoad = 0.5; // kN/m: tiestos con tierra mojada ≈ 50 kg por metro
+    potBar = _choose(roundTable, (p) {
+      final m = 1.5 * potLoad / 2 * sp * sp / 8;
+      return [
+        Check('Redondo de tiestos ${p.name}', 'Peso de tiestos ${_f(potLoad, 1)} kN/m repartido en 2 redondos', m / _mRd(p, fy),
+            'MEd = ${_f(m, 3)} kN·m, vano ${_f(sp, 2)} m'),
+      ];
+    }, checks);
+    for (final x in xs) {
+      members.add(Member(role: MemberRole.bracket, profile: post, a: Vec3(x, 0, zm), b: Vec3(x, d, zm)));
+    }
+    for (final y in [d / 3, 2 * d / 3]) {
+      members.add(Member(role: MemberRole.rail, profile: potBar, a: Vec3(0, y, zm + post.b / 2000 + potBar.h / 2000), b: Vec3(lx, y, zm + post.b / 2000 + potBar.h / 2000)));
+    }
+  }
+  // Comprobaciones
+  final mPost = 1.5 * ql * sp * r.outer;
+  checks.add(Check('Montante ${post.name}', 'Empuje ${_f(ql, 1)} kN/m a ${_f(r.outer, 2)} m sobre el peto (DB-SE-AE 3.2)',
+      mPost / _mRd(post, fy), 'MEd = ${_f(mPost, 3)} kN·m en el arranque de la cara exterior, montantes cada ${_f(sp, 2)} m'));
+  final wz = slat.iz / (slat.b / 20); // cm³, flexión en horizontal (eje débil)
+  final mSlat = 1.5 * ql * sp * sp / 8;
+  checks.add(Check('Listón ${slat.name}', 'Empuje horizontal en el listón superior entre montantes', mSlat / (wz * fy / gammaM0 / 1000),
+      'MEd = ${_f(mSlat, 3)} kN·m, vano ${_f(sp, 2)} m'));
+  final lever = math.max(0.08, r.inner - r.outer - 0.05);
+  final tAnchor = mPost / lever;
+  checks.add(Check('Anclaje de la cara interior', '2 anclajes químicos M8 (≈ 5 kN c/u de cálculo) por montante', tAnchor / 10,
+      'Tiro ≈ ${_f(tAnchor, 2)} kN con brazo de ${_f(lever, 2)} m'));
+  final protection = zp + r.outer;
+  if (r.parapet != null && protection < 0.9) {
+    warnings.add('Peto + barandilla = ${_f(protection, 2)} m: no llega a 0,90 m de protección (CTE DB-SUA 1 §3.2.1).');
+  }
+  warnings.add('Listones horizontales: son escalables. El CTE DB-SUA 1 §3.2.3 no los admite entre 30 y 50 cm de altura donde pueda '
+      'haber niños; en vivienda, cuenta la altura desde el suelo del balcón.');
+  if (r.pots) warnings.add('Los tiestos van por dentro: que no puedan caer a la calle y que el agua no manche la fachada.');
+  warnings.add(_warnValidate());
+
+  final plates = <PlatePiece>[];
+  final bolts = <BoltItem>[
+    BoltItem('Anclaje de la cara interior al peto', 'M8 varilla 5.8 + resina (o taco metálico M8)', nPosts * 2, 'Cara interior del peto'),
+    BoltItem('Tapones / remates', 'Tapón de PVC para tubo ${slat.name}', r.slats * 2, 'Extremos de los listones'),
+  ];
+  final welds = <WeldSpec>[
+    WeldSpec(joint: 'Esquinas de la U de llanta', type: 'En ángulo, a tope por fuera', throat: 3, lengthPerJoint: 2 * post.h,
+        count: nPosts * (r.pots ? 6 : 4)),
+    WeldSpec(joint: 'Listones – montantes', type: 'En ángulo', throat: 3, lengthPerJoint: 2 * slat.h, count: r.slats * nPosts),
+    if (potBar != null)
+      WeldSpec(joint: 'Redondos de tiestos – vuelos', type: 'En ángulo', throat: 3, lengthPerJoint: 30, count: 2 * nPosts),
+  ];
+  final hyp = [
+    ..._commonHypotheses(s),
+    'Barandilla sobre el peto de ${_f(lx, 2)} m: ${r.slats} listones ${slat.name} horizontales por fuera, montantes de ${post.name} '
+        'en U invertida (${_f(r.outer, 3)} m por fuera, ${_f(d, 3)} m de vuelo y ${_f(r.inner, 3)} m por dentro) cada ${_f(sp, 2)} m.',
+    'Empuje horizontal ${_f(ql, 1)} kN/m (${s.use}, DB-SE-AE 3.2.1) en el listón superior.',
+    'Altura de protección = peto ${r.parapet == null ? '(supuesto ${_f(zp, 2)} m)' : _f(zp, 2)} + ${_f(r.outer, 2)} m.',
+    if (r.pots) 'Soporte de tiestos: vuelo de llanta a media altura (${_f(r.outer / 2, 3)} m) con 2 redondos ${potBar!.name} longitudinales soldados encima.',
+  ];
+  final assembly = [
+    'Toma de datos del peto: altura, ancho de albardilla (${_f(d, 3)} m supuesto) y plomo de la cara interior.',
+    'Plegado o soldadura de las U de llanta ${post.name} en taller con plantilla.',
+    'Soldadura de los listones a las U por la cara exterior${r.pots ? ' y de los redondos de tiestos' : ''}; tramos de ≤ 3 m.',
+    'Presentación a caballo del peto, taladro de la cara interior y anclaje (2 por montante).',
+    'Remates y acabado (${s.finish}).',
+  ];
+  // peto (muro) para que se vea dónde va
+  final surfaces = <Surface>[
+    Surface(Vec3(-0.1, 0, 0), Vec3(lx + 0.1, 0, 0), Vec3(lx + 0.1, 0, zp), Vec3(-0.1, 0, zp), SurfaceKind.wall),
+    Surface(Vec3(-0.1, 0, zp), Vec3(lx + 0.1, 0, zp), Vec3(lx + 0.1, d, zp), Vec3(-0.1, d, zp), SurfaceKind.wall),
+    Surface(Vec3(-0.1, d, 0), Vec3(lx + 0.1, d, 0), Vec3(lx + 0.1, d, zp), Vec3(-0.1, d, zp), SurfaceKind.wall),
+  ];
+  return Design(
+    spec: s,
+    prompt: prompt,
+    members: members,
+    plates: plates,
+    bolts: bolts,
+    welds: welds,
+    checks: checks,
+    hypotheses: hyp,
+    assembly: assembly,
+    warnings: warnings,
+    footings: const [],
+    footingSize: 0,
+    frameX: [0, lx],
+    gridY: [0, d],
+    ridgeHeight: top,
+    surfaces: surfaces,
+  );
+}

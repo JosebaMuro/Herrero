@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'catalog.dart';
+import 'material_catalog.dart';
 import 'model.dart';
 import 'normativa.dart';
 import 'profiles.dart';
@@ -210,15 +211,19 @@ String railForm(String t) {
       (t.contains('pasamanos') && !RegExp(r'barandilla|antepecho|guardacuerpos|barrotes|montantes|vidrio|cables|peto').hasMatch(t))) {
     return 'pasamanos a pared';
   }
+  if (readParapetRail(t) != null) return 'sobre peto';
   if (t.contains('vidrio')) return 'vidrio';
   if (t.contains('cables')) return 'cables';
   if (t.contains('chapa perforada') || RegExp(r'(?<![a-z])chapa(?! lagrimada)').hasMatch(t)) return 'chapa perforada';
   if (RegExp(r'(?<![a-z])lamas?(?![a-z])').hasMatch(t)) return 'lamas';
-  if (t.contains('barras horizontales')) return 'barras horizontales';
+  if (t.contains('barras horizontales') ||
+      RegExp(r'(?:liston(?:es)?|barras?|tubos?|pletinas?|llantas?|travesanos?)(?: [a-z0-9.x]+){0,6} horizontal(?:es)?').hasMatch(t)) {
+    return 'barras horizontales';
+  }
   return 'barrotes';
 }
 
-const railForms = ['barrotes', 'vidrio', 'cables', 'chapa perforada', 'lamas', 'barras horizontales', 'pasamanos a pared'];
+const railForms = ['barrotes', 'vidrio', 'cables', 'chapa perforada', 'lamas', 'barras horizontales', 'pasamanos a pared', 'sobre peto'];
 
 /// ¿Es una reja de ventana (y no una valla de parcela)?
 bool isWindowGrille(String t) {
@@ -239,23 +244,25 @@ StructureSpec parsePrompt(String prompt, {StructureType? type}) {
   type ??= detectType(t, notes);
 
   // --- Dimensiones ---------------------------------------------------------
-  double? length = _find(t, [
+  // (sin las secciones de perfil: «llanta de 30x5 mm» no es una medida de la estructura)
+  final td = maskSections(t);
+  double? length = _find(td, [
     '${_kw("largo|longitud|fondo|profundidad")}\\s*(?:total\\s*)?(?:de|:|=)?\\s*(?<n>\\d+(?:\\.\\d+)?)\\s*(?<u>mm|cm|m)?',
     '(?<n>\\d+(?:\\.\\d+)?)\\s*(?<u>mm|cm|m)?(?:etros?|ts?)?\\s*(?:de\\s+)?${_kw("largo|longitud|fondo|profundidad")}',
   ]);
-  double? width = _find(t, [
+  double? width = _find(td, [
     '${_kw("ancho|anchura|luz|vano libre")}\\s*(?:de|:|=)?\\s*(?<n>\\d+(?:\\.\\d+)?)\\s*(?<u>mm|cm|m)?',
     '(?<n>\\d+(?:\\.\\d+)?)\\s*(?<u>mm|cm|m)?(?:etros?|ts?)?\\s*(?:de\\s+)?${_kw("ancho|anchura|luz")}',
   ]);
-  double? height = _find(t, [
-    '${_kw("altura libre|altura al alero|altura de alero|altura|alto|alero|gálibo|galibo|cota")}\\s*(?:libre\\s*)?(?:de|:|=|a)?\\s*(?<n>\\d+(?:\\.\\d+)?)\\s*(?<u>mm|cm|m)?',
+  double? height = _find(td, [
+    '${_kw("altura libre|altura al alero|altura de alero|altura|alto|alero|gálibo|galibo|cota")}\\s*(?:libre\\s*|total\\s*|exterior\\s*|vista\\s*)?(?:de|:|=|a)?\\s*(?<n>\\d+(?:\\.\\d+)?)\\s*(?<u>mm|cm|m)?',
     '(?<n>\\d+(?:\\.\\d+)?)\\s*(?<u>mm|cm|m)?(?:etros?|ts?)?\\s*(?:de\\s+)?${_kw("alto|altura|libres?(?! de ancho)")}',
   ]);
 
   // Formato "A x B (x C)"
   final dimRe = RegExp(
       r'(\d+(?:\.\d+)?)\s*(mm|cm|m)?(?:etros?|ts?)?\s*(?:x|por|\*)\s*(\d+(?:\.\d+)?)\s*(mm|cm|m)?(?:etros?|ts?)?(?:\s*(?:x|por|\*)\s*(\d+(?:\.\d+)?)\s*(mm|cm|m)?)?');
-  final dm = dimRe.firstMatch(t);
+  final dm = dimRe.firstMatch(td);
   if (dm != null) {
     final u2 = dm[4] ?? dm[2];
     final a = _toM(dm[1]!, dm[2] ?? u2);
@@ -275,7 +282,7 @@ StructureSpec parsePrompt(String prompt, {StructureType? type}) {
   }
 
   // Superficie "de 60 m2" sin dimensiones -> cuadrado aproximado
-  final area = RegExp(r'(\d+(?:\.\d+)?)\s*(?:m2|m²|metros cuadrados)').firstMatch(t);
+  final area = RegExp(r'(\d+(?:\.\d+)?)\s*(?:m2|m²|metros cuadrados)').firstMatch(td);
   if (area != null && length == null && width == null) {
     final s = math.sqrt(double.parse(area[1]!));
     final w = (s * 0.8).clamp(2.0, 30.0);
@@ -289,10 +296,18 @@ StructureSpec parsePrompt(String prompt, {StructureType? type}) {
   if (linear.contains(type) && height == null && width != null && dm != null) {
     height = width;
     width = null;
+    // en las rejas de ventana se dice «ancho x alto», en ese orden
+    if (type == StructureType.valla && isWindowGrille(t) && length != null) {
+      final u2 = dm[4] ?? dm[2];
+      length = _toM(dm[1]!, dm[2] ?? u2);
+      height = _toM(dm[3]!, u2);
+    }
   }
   // Medida suelta "de 3 m" sin palabra clave: según la tipología
   final bare = RegExp(r'(?:de|con|a)\s+(\d+(?:\.\d+)?)\s*(mm|cm|m)(?:etros?|ts?)?\b(?!\s*(?:de\s+)?(?:ancho|anchura|largo|alto|altura|fondo|luz|hueco))')
-      .firstMatch(t);
+      .allMatches(td)
+      .where((m) => !RegExp(r'(?:altura|alto|exterior|interior)\s*$').hasMatch(td.substring(math.max(0, m.start - 12), m.start)))
+      .firstOrNull;
   if (bare != null && dm == null) {
     final v = _toM(bare[1]!, bare[2]);
     switch (type) {
@@ -316,7 +331,16 @@ StructureSpec parsePrompt(String prompt, {StructureType? type}) {
         break;
     }
   }
-  final hueco = _find(t, ['hueco\\s*(?:libre\\s*)?(?:de|:)?\\s*(?<n>\\d+(?:\\.\\d+)?)\\s*(?<u>mm|cm|m)?']);
+  // «a 2,8 m» sin más: altura en altillos, pasarelas y torres
+  if (height == null && const [StructureType.entreplanta, StructureType.pasarela, StructureType.torre].contains(type)) {
+    final a = RegExp(r'(?<![a-z])a\s+(\d+(?:\.\d+)?)\s*(m|cm)?(?:etros?)?(?![\d.x])(?!\s*(?:de\s+)?(?:ancho|largo|fondo|longitud))')
+        .firstMatch(td);
+    if (a != null) height = _toM(a[1]!, a[2]);
+  }
+  final hueco = _find(td, [
+    'hueco\\s*(?:libre\\s*)?(?:de|:)?\\s*(?<n>\\d+(?:\\.\\d+)?)\\s*(?<u>mm|cm|m)?',
+    '(?<n>\\d+(?:\\.\\d+)?)\\s*(?<u>mm|cm|m)?(?:etros?)?\\s+de\\s+hueco',
+  ]);
   if (hueco != null && type == StructureType.cancela) length = hueco;
 
   final ridge = _find(t, ['cumbrera\\s*(?:de|:|=|a)?\\s*(?<n>\\d+(?:\\.\\d+)?)\\s*(?<u>mm|cm|m)?']);
@@ -353,8 +377,18 @@ StructureSpec parsePrompt(String prompt, {StructureType? type}) {
       break;
     case StructureType.barandilla:
       final wall = railForm(t) == 'pasamanos a pared';
-      length ??= def('longitud', wall ? 4.0 : 10.0);
-      if (wall) {
+      final peto = readParapetRail(t);
+      length ??= def('longitud', wall ? 4.0 : (RegExp(r'balcon|ventana|terraza pequena').hasMatch(t) ? 3.0 : 10.0));
+      if (peto != null) {
+        height = peto.inner;
+        notes.addAll(peto.notes);
+        notes.add('Barandilla sobre el peto: sobresale ${_fmtM(peto.outer)} m por fuera, vuela ${_fmtM(peto.depth)} m hacia dentro '
+            'y baja ${_fmtM(peto.inner)} m por la cara interior, donde se ancla.');
+        if (peto.parapet == null) {
+          notes.add('Altura del peto no indicada: con ${_fmtM(peto.outer)} m por encima, el peto debe medir al menos '
+              '${_fmtM(math.max(0, 0.9 - peto.outer))} m para llegar a 0,90 m de protección (CTE DB-SUA 1).');
+        }
+      } else if (wall) {
         if (height == null || height > 1.2 || height < 0.7) {
           height = 0.9;
           notes.add('Pasamanos a 0,90 m sobre la línea de peldaños o el suelo (CTE DB-SUA 1: entre 0,90 y 1,10 m).');
@@ -503,10 +537,15 @@ StructureSpec parsePrompt(String prompt, {StructureType? type}) {
   var cladding = '';
   var tr = t; // texto para detectar la cubierta
   final cl = RegExp(r'(?:cerramientos?|fachadas?|paredes|laterales|cerrada con|cerrado con)(?:\s+laterales?)?\s+(?:de|con|en)?\s*'
-          r'(panel sandwich(?:\s+de\s+\d+\s*mm)?|chapa grecada|chapa|bloque de hormigon|bloque|ladrillo|policarbonato|malla|lamas)')
+          r'(panel sandwich(?:\s+de\s+\d+\s*mm)?|chapa grecada|chapa ondulada|chapa perforada|calaminon(?:es)?|calaminas?|chapa|bloque de hormigon|bloque|ladrillo|policarbonato|vidrio|cristal|malla|lamas)')
       .firstMatch(t);
   if (cl != null) {
-    cladding = cl[1]!.replaceAll('sandwich', 'sándwich').replaceAll('hormigon', 'hormigón');
+    cladding = switch (cl[1]!) {
+      final c when c.startsWith('calaminon') => 'chapa grecada (calaminón)',
+      final c when c.startsWith('calamina') => 'chapa ondulada (calamina)',
+      'cristal' => 'vidrio',
+      final c => c.replaceAll('sandwich', 'sándwich').replaceAll('hormigon', 'hormigón'),
+    };
     tr = t.replaceRange(cl.start, cl.end, ' ');
     notes.add('Cerramiento lateral: $cladding.');
   }
@@ -549,9 +588,15 @@ StructureSpec parsePrompt(String prompt, {StructureType? type}) {
             : (RegExp(r'tablero|madera|fenolico|osb').hasMatch(rt)
                 ? 'tablero fenólico/madera'
                 : 'chapa lagrimada${e != null ? ' $e mm' : ''}'));
-  } else if (RegExp(r'chapa grecada|chapa').hasMatch(rt)) {
-    final e = mm('chapa');
+  } else if (_catalogRoof(rt) case final c?) {
+    // materiales del catálogo sin regla propia (chapa ondulada, placa asfáltica…)
+    final e = mm('chapa|ondulada|asfaltica');
+    roofing = '${c.fichaText}${e != null ? ' $e mm' : ''}';
+    if (c.id == 'chapa-ondulada' && RegExp(r'calamina').hasMatch(rt)) notes.add('«Calamina» = chapa ondulada galvanizada.');
+  } else if (RegExp(r'chapa grecada|chapa|calaminon').hasMatch(rt)) {
+    final e = mm('chapa|calaminon');
     roofing = 'chapa grecada${e != null ? ' $e mm' : ''}';
+    if (RegExp(r'calaminon').hasMatch(rt)) notes.add('«Calaminón» = chapa grecada (trapezoidal).');
   }
 
   // --- Nieve ----------------------------------------------------------------
@@ -734,7 +779,8 @@ StructureSpec parsePrompt(String prompt, {StructureType? type}) {
       final form = railForm(t);
       final toe = form != 'pasamanos a pared' &&
           (t.contains('rodapie') || RegExp(r'industrial|nave|fabrica|mantenimiento|pasarela|plataforma').hasMatch(t));
-      variant = '$form${toe ? ' · rodapié' : ''}';
+      final pots = form == 'sobre peto' && (readParapetRail(t)?.pots ?? false);
+      variant = '$form${toe ? ' · rodapié' : ''}${pots ? ' · tiestos' : ''}';
       break;
     case StructureType.cercha:
       variant = '${RegExp(r'pilares|columnas|soportes metalicos').hasMatch(t) ? 'sobre pilares' : 'sobre muros'}'
@@ -991,3 +1037,126 @@ Map<String, String> partProfiles(String t, [List<String>? notes]) {
   }
   return out;
 }
+
+/// Cubierta del catálogo de materiales que no tiene regla propia en el
+/// intérprete (las de siempre se leen arriba con su espesor).
+BuildMaterial? _catalogRoof(String t) {
+  const own = {'chapa-grecada', 'panel-sandwich', 'panel-sandwich-teja', 'teja', 'fotovoltaica', 'fibrocemento', 'lamas'};
+  for (final m in materialsIn(t, groups: {MatGroup.cubierta})) {
+    if (!own.contains(m.id) && !m.id.startsWith('policarbonato') && m.fichaText != null) return m;
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Secciones de perfil y barandilla sobre peto
+// ---------------------------------------------------------------------------
+
+const _barWords = r'llantas?|pletinas?|platabandas?|liston(?:es)?|tubos?|perfil(?:es)?|angular(?:es)?|angulos?|shs|rhs|chs|'
+    r'cuadradillos?|redondos?|chapas?|barrotes?|montantes?|pasamanos|largueros?|travesanos?|barras?|varillas?|ipe|ipn|heb|hea|upn|upe';
+
+/// Tapa en el texto las medidas que son secciones o piezas de perfil
+/// («llanta de 30x5 mm», «listones de 20x50 mm», «170 mm de llanta», «tubo
+/// 80x80») para que no se lean como medidas de la estructura.
+String maskSections(String t) {
+  String blank(Match m) => ' ' * m[0]!.length;
+  const n = r'\d+(?:\.\d+)?';
+  var s = t;
+  // perfil + (hasta 30 letras) + AxB(xC)
+  s = s.replaceAllMapped(
+      RegExp('(?<![a-z])(?:$_barWords)(?![a-z])[a-z ]{0,30}?($n\\s*x\\s*$n(?:\\s*x\\s*$n)?)\\s*(?:mm)?'), (m) {
+    final full = m[0]!;
+    final i = full.indexOf(m[1]!);
+    return '${full.substring(0, i)}${' ' * (full.length - i)}';
+  });
+  // AxB(xC) mm pequeño (≤ 400 mm): es una sección
+  s = s.replaceAllMapped(RegExp('(?<![\\d.])($n)\\s*x\\s*($n)(?:\\s*x\\s*$n)?\\s*mm(?![a-z])'), (m) {
+    final a = double.parse(m[1]!), b = double.parse(m[2]!);
+    return math.max(a, b) <= 400 ? blank(m) : m[0]!;
+  });
+  // «170 mm de llanta», «2 m de tubo»: largo de una pieza
+  s = s.replaceAllMapped(RegExp('(?<![\\d.])$n\\s*(?:mm|cm)\\s+de\\s+(?:$_barWords)(?![a-z])'), blank);
+  return s;
+}
+
+/// Barandilla que va encima del peto del balcón (a caballo de la albardilla):
+/// montantes de llanta en U invertida con una cara por fuera (altura
+/// exterior), un vuelo hacia dentro y otra cara por el interior del peto, donde
+/// se ancla. Relleno de listones horizontales y, si se pide, soporte de tiestos.
+class ParapetRail {
+  final double outer; // m que sobresale por fuera, sobre el peto
+  final double inner; // m de la cara interior (de arriba al anclaje)
+  final double depth; // m de vuelo hacia el interior (ancho de la albardilla)
+  final int slats; // listones horizontales
+  final SteelProfile slat;
+  final SteelProfile post;
+  final int posts; // 0 = según separación
+  final bool pots; // soporte de tiestos / jardinera
+  final double? parapet; // altura del peto si se da
+  final List<String> notes;
+  const ParapetRail(this.outer, this.inner, this.depth, this.slats, this.slat, this.post, this.posts, this.pots, this.parapet,
+      this.notes);
+}
+
+/// Lee una barandilla sobre peto, o null si la petición no lo es.
+ParapetRail? readParapetRail(String t) {
+  const n = r'(\d+(?:\.\d+)?)\s*(mm|cm|m)?';
+  final ext = RegExp('altura\\s+exterior\\s*(?:de|:)?\\s*$n').firstMatch(t);
+  final inn = RegExp('(?:altura\\s+)?interior\\s*(?:de|:)?\\s*$n').firstMatch(t);
+  final onTop = RegExp(r'sobre (?:el |la )?(?:peto|albardilla|antepecho|murete)|encima del (?:peto|murete)|a caballo|'
+          r'por (?:el )?interior (?:de la fachada|del peto|del balcon|del antepecho)|cara interior del (?:peto|antepecho)')
+      .hasMatch(t);
+  if (ext == null && !onTop) return null;
+  final notes = <String>[];
+  // sin unidad: más de 20 son milímetros
+  double m(Match x, double def) => _toM(x[1]!, x[2] ?? (double.parse(x[1]!) > 20 ? 'mm' : 'm'));
+
+  final outer = ext != null ? m(ext, 0.4) : 0.4;
+  final inner = inn != null && inn.start != ext?.start ? m(inn, 0.7) : outer + 0.3;
+  final dep = RegExp('(\\d+(?:\\.\\d+)?)\\s*(mm|cm)\\s+de\\s+(?:llanta|pletina|vuelo)[a-z ]{0,20}?(?:hacia|al|por)(?: el)? interior|'
+          '(?:vuelo|fondo|albardilla)\\s*(?:de)?\\s*(\\d+(?:\\.\\d+)?)\\s*(mm|cm)')
+      .firstMatch(t);
+  final depth = dep == null ? 0.17 : _toM(dep[1] ?? dep[3]!, dep[2] ?? dep[4]);
+  if (dep == null) notes.add('Vuelo hacia el interior no indicado: se suponen 170 mm (ancho de albardilla habitual).');
+  // listones horizontales: número y sección
+  final sl = RegExp('(\\d+)\\s+(?:liston(?:es)?|pletinas?|tubos?|barras?|llantas?|travesanos?)[a-z ]{0,20}?'
+          '(?:de\\s+)?(\\d+(?:\\.\\d+)?)\\s*x\\s*(\\d+(?:\\.\\d+)?)(?:\\s*x\\s*(\\d+(?:\\.\\d+)?))?')
+      .firstMatch(t);
+  var slats = 4;
+  SteelProfile slat = rhsOf(50, 20, 2);
+  if (sl != null) {
+    slats = int.parse(sl[1]!);
+    final a = double.parse(sl[2]!), b = double.parse(sl[3]!);
+    final big = math.max(a, b), small = math.min(a, b);
+    final word = sl[0]!;
+    if (sl[4] != null) {
+      slat = rhsOf(big, small, double.parse(sl[4]!));
+    } else if (small < 12 || RegExp(r'pletina|llanta').hasMatch(word)) {
+      slat = flatOf(big, small);
+    } else {
+      slat = rhsOf(big, small, 2);
+      notes.add('Listones de ${_fmtMm(big)}x${_fmtMm(small)} mm sin espesor: se toma tubo ${slat.name} (si son macizos, '
+          'escribe «pletina ${_fmtMm(big)}x${_fmtMm(small)}»).');
+    }
+  } else {
+    notes.add('Relleno no indicado: 4 listones de tubo 50x20x2.');
+  }
+  // montantes de llanta
+  final pm = RegExp('(?:llanta|pletina)s?\\s*(?:de\\s*)?(\\d+(?:\\.\\d+)?)\\s*x\\s*(\\d+(?:\\.\\d+)?)').firstMatch(t);
+  SteelProfile post = flatOf(40, 8);
+  if (pm != null) {
+    final a = double.parse(pm[1]!), b = double.parse(pm[2]!);
+    post = flatOf(math.max(a, b), math.min(a, b));
+  } else {
+    notes.add('Montantes no indicados: llanta 40x8.');
+  }
+  final posts = RegExp(r'extremos y (?:en )?(?:el )?centro|extremos y medio').hasMatch(t) ? 3 : 0;
+  final pots = RegExp(r'tiestos?|macetas?|maceteros?|jardinera|flores|plantas').hasMatch(t);
+  final pp = RegExp('peto\\s*(?:de)?\\s*$n').firstMatch(t);
+  final parapet = pp == null ? null : m(pp, 0.6);
+  return ParapetRail(outer, inner, depth, slats, slat, post, posts, pots, parapet, notes);
+}
+
+String _fmtMm(double v) => v.toStringAsFixed(v % 1 == 0 ? 0 : 1);
+
+String _fmtM(double v) => v.toStringAsFixed(v * 100 % 1 == 0 ? (v * 100 % 10 == 0 ? 1 : 2) : 3).replaceAll('.', ',');

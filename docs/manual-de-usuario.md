@@ -19,6 +19,19 @@ buscar distribuidores o situar direcciones en el mapa.
 
 También puedes empezar desde un plano: **Importar plano** (PDF de CAD, PDF escaneado, foto o croquis).
 
+**Materiales.** En *Catálogo → Materiales* tienes el repositorio de materiales que entiende la app
+(perfiles, chapas, cubiertas, suelos, cerramientos, vidrio y rellenos) con buscador, usos, medidas
+y pesos. Puedes nombrarlos como los llames en tu zona: *calaminón* (chapa grecada), *calamina*
+(chapa ondulada), *onduline*, *chapa estriada* (lagrimada), *policarbonato alveolar*, *llanta*…
+La cubierta elegida da el peso propio al cálculo y el aspecto al render y a la foto IA. Las medidas
+de perfil (*«llanta de 30x5 mm»*, *«tubo 80x80»*) ya no se confunden con las de la estructura.
+
+**Barandilla sobre el peto del balcón.** Escribe la altura exterior (lo que sobresale por fuera) e
+interior (lo que baja por dentro, donde se ancla), el vuelo hacia dentro, los listones y las llantas.
+Ejemplo: *«Barandilla de balcón de 5 listones de 20x50 mm horizontales, llanta de 30x5 vertical en
+extremos y centro, 170 mm de llanta hacia el interior, altura exterior de 390 mm e interior de
+685 mm, con soporte para tiestos»*. Si no das la longitud se suponen 3 m: corrígela en la ficha.
+
 ## 2. Guardar y gestionar proyectos
 
 - En el proyecto, pulsa el **disquete** (arriba). Escribe nombre, cliente, obra, estado y notas.

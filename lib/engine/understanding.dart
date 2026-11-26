@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:math' as math;
 
 import 'comprehension_aids.dart';
+import 'material_catalog.dart';
 import 'model.dart';
 import 'parser.dart';
 import 'reasoning.dart';
@@ -43,8 +44,8 @@ class Understanding {
 /// Instrucciones del LLM. La tipología ya viene decidida en la respuesta.
 String llmSystem() => 'Eres el asistente de una oficina técnica de estructuras metálicas. Lee la petición del '
     'cliente y completa la ficha JSON con lo que diga el texto. Omite lo que no diga.\n'
-    'Campos: largo_m, ancho_m, alto_m (metros); cubierta (panel sándwich, chapa grecada, policarbonato, teja, '
-    'vidrio, tramex o sin cubierta); acero (S235JR, S275JR, S355JR, corten, inoxidable o aluminio); acabado '
+    'Campos: largo_m, ancho_m, alto_m (metros); cubierta (panel sándwich, chapa grecada, chapa ondulada, policarbonato, '
+    'teja, vidrio, tramex, chapa lagrimada o sin cubierta); acero (S235JR, S275JR, S355JR, corten, inoxidable o aluminio); acabado '
     '(galvanizado, pintado o lacado); ubicacion (ciudad o provincia); uso (para qué es); carga_kg_m2; niveles.';
 
 /// Ejemplos (petición, ficha) de serie que se dan al LLM antes de la petición
@@ -53,7 +54,8 @@ final llmExamples = llmExamplePool.take(2).toList();
 
 /// Mensaje del usuario: la petición, los datos que ya han leído las reglas
 /// (extracción en dos pasos) y el glosario de los términos que usa.
-String llmUser(String prompt) => 'Petición: ${prompt.trim()}${factsForLlm(readFacts(prompt))}${glossaryForLlm(prompt)}';
+String llmUser(String prompt) =>
+    'Petición: ${prompt.trim()}${factsForLlm(readFacts(prompt))}${glossaryForLlm(prompt)}${materialsForLlm(prompt, max: 3)}';
 
 /// Instrucciones y ejemplos resueltos (sin razonamiento).
 String llmPrefix([List<(String, String)>? examples]) {

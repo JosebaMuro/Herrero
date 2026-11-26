@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import '../engine/material_catalog.dart';
 import '../engine/model.dart';
 import '../engine/profiles.dart';
 import '../cad/dxf.dart' show MeshGroup;
@@ -186,12 +187,15 @@ class SceneMesh {
       if (d.spec.cladding.isNotEmpty && d.spec.type == StructureType.nave && d.gridY.length > 1) {
         final x1 = d.frameX.last, L = d.gridY.last, H = d.spec.height, rz = d.ridgeHeight;
         final cl = d.spec.cladding;
-        final (Vec3 c, int pat) = cl.contains('bloque') || cl.contains('ladrillo')
+        final cat = materialFor(cl)?.look;
+        final (Vec3 c, int pat) = cat != null
+            ? (Vec3(cat.r, cat.g, cat.b), cat.pattern.index)
+            : cl.contains('bloque') || cl.contains('ladrillo')
             ? (cl.contains('ladrillo') ? const Vec3(0.62, 0.36, 0.25) : const Vec3(0.70, 0.69, 0.66), ZPattern.concrete)
             : (cl.contains('policarbonato')
                 ? (const Vec3(0.75, 0.82, 0.86), ZPattern.none)
                 : (cl.contains('sándwich') ? (const Vec3(0.84, 0.85, 0.86), ZPattern.sandwich) : (const Vec3(0.78, 0.79, 0.80), ZPattern.ribbed)));
-        final a = cl.contains('policarbonato') ? 0.45 : 1.0;
+        final a = cat != null ? math.max(cat.alpha, 0.3) : (cl.contains('policarbonato') ? 0.45 : 1.0);
         final off = 0.12;
         _quad(Vec3(0, L + off, 0), Vec3(x1, L + off, 0), Vec3(x1, L + off, H), Vec3(0, L + off, H), c, 0.25,
             alpha: a, pattern: pat);
@@ -450,6 +454,8 @@ class SceneMesh {
         if (roofing.contains('colaborante') || roofing.contains('hormig')) {
           return (const Vec3(0.66, 0.65, 0.62), 0.05, 1, ZPattern.concrete);
         }
+        final fl = materialFor(roofing, groups: roofGroups)?.look;
+        if (fl != null) return lookOf(fl);
         return (const Vec3(0.45, 0.43, 0.40), 0.2, 1, ZPattern.none);
       case SurfaceKind.grating:
         return (const Vec3(0.58, 0.59, 0.60), 0.3, 1, ZPattern.grating);
@@ -466,7 +472,12 @@ class SceneMesh {
     }
   }
 
+  /// Aspecto de un material del catálogo (MatPattern y ZPattern comparten valores).
+  static (Vec3, double, double, int) lookOf(MatLook l) => (Vec3(l.r, l.g, l.b), l.specular, l.alpha, l.pattern.index);
+
   static (Vec3, double, double, int) _roofLook(String r) {
+    final cat = materialFor(r, groups: roofGroups)?.look;
+    if (cat != null) return lookOf(cat);
     if (r.contains('policarbonato')) return (const Vec3(0.75, 0.82, 0.86), 0.4, 0.45, ZPattern.none);
     if (r.contains('vidrio')) return (const Vec3(0.70, 0.85, 0.88), 0.8, 0.30, ZPattern.none);
     if (r.contains('teja')) return (const Vec3(0.55, 0.25, 0.17), 0.1, 1, ZPattern.tile);

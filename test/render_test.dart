@@ -48,6 +48,30 @@ void main() {
     });
   }
 
+  // Texto de prueba de Joseba: barandilla de balcón sobre el peto, con listones y soporte de tiestos.
+  const balcon = 'Barandilla de balcon formada por 5 listones frontales de 20×50 mm horizontales, con llanta de 30×5 mm '
+      'vertical en extremos y centro y 170 mm de llanta hacia el interior en parte superior e inferior. Tiene una altura '
+      'exterior de 390 mm e interior de 685 mm para union por el interior de la fachada del balcon. Lleva a media altura '
+      'entre las llantas, apolladas y soldadas longitudinal para poner tiestos. Pintada en negro.';
+  testWidgets('render barandilla de balcón sobre peto', (tester) async {
+    await tester.runAsync(() async {
+      final d = designFromPrompt(balcon);
+      final cam = OrbitCamera()
+        ..yaw = 2.35
+        ..pitch = 0.42;
+      final (_, ren) = await renderHq(d, finishFromSpec(d.spec.finish), cam, width: 900, height: 600, ss: 2);
+      final iso = await paintToImage((c, s) => IsoPainter(d).paint(c, s), const Size(900, 640), 1);
+      expect(ren.width, 900);
+      final pdf = await buildPdf(d);
+      expect(pdf.length, greaterThan(10000));
+      if (out != null) {
+        await _save(ren, '$out/barandilla_balcon_render.png');
+        await _save(iso, '$out/barandilla_balcon_iso.png');
+        File('$out/barandilla_balcon.pdf').writeAsBytesSync(pdf);
+      }
+    });
+  });
+
   // Caso de Joseba: inox con doble pasamanos (antes salía de tubo cuadrado y con un solo pasamanos).
   const inoxRail = 'barandilla de acero inoxidable de doble pasamanos de 1,10 m de altura y 4 m de largo';
   testWidgets('render barandilla inox doble pasamanos', (tester) async {

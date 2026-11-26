@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../engine/catalog.dart';
 import '../engine/formacion.dart';
+import '../engine/material_catalog.dart';
 import '../engine/model.dart';
 import '../engine/normativa.dart';
 import '../engine/parser.dart';
@@ -76,42 +77,95 @@ class _Typologies extends StatelessWidget {
   }
 }
 
-class _Materials extends StatelessWidget {
+class _Materials extends StatefulWidget {
   const _Materials();
+  @override
+  State<_Materials> createState() => _MaterialsState();
+}
+
+class _MaterialsState extends State<_Materials> {
+  String _q = '';
   static String _n(double v) => v.toStringAsFixed(v % 1 == 0 ? 0 : 1).replaceAll('.', ',');
+
+  bool _hit(BuildMaterial m, String q) =>
+      q.isEmpty ||
+      normalize(m.name).contains(q) ||
+      normalize(m.description).contains(q) ||
+      m.aka.any((a) => a.contains(q)) ||
+      m.uses.any((u) => normalize(u).contains(q));
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    return ListView(padding: const EdgeInsets.all(12), children: [
-      Text('Por defecto se usa S275JR. Escribe el material en la descripción (p. ej. «en S355», «inox 316», '
-          '«aluminio», «corten») o pon perfiles por partes: «pilares HEB 220, correas de tubo, tirantes de redondo 16».',
-          style: TextStyle(color: cs.onSurfaceVariant)),
-      const SizedBox(height: 8),
-      for (final g in allGrades)
-        Card(
-          child: ListTile(
-            title: Text('${g.name}  ·  ${g.norm}', style: const TextStyle(fontWeight: FontWeight.w600)),
-            subtitle: Text('${g.description}\n'
-                'fy ${_n(g.fy)} · fu ${_n(g.fu)} N/mm² · E ${_n(g.e / 1000)} GPa · ${_n(g.density)} kg/m³\n'
-                'Soldadura: ${g.weld}\n${g.bolts}'),
-            isThreeLine: true,
-          ),
+    final q = normalize(_q.trim());
+    return Column(children: [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+        child: TextField(
+          decoration: const InputDecoration(
+              prefixIcon: Icon(Icons.search), hintText: 'Buscar material (calaminón, llanta, policarbonato…)'),
+          onChanged: (v) => setState(() => _q = v),
         ),
-      const SizedBox(height: 8),
-      Text('Cubiertas, suelos y cerramientos', style: Theme.of(context).textTheme.titleMedium),
-      const SizedBox(height: 4),
-      for (final (k, v) in const [
-        ('Panel sándwich', 'PUR/PIR 30–100 mm o lana de roca. Indica el espesor: «panel sándwich de 60 mm».'),
-        ('Chapa grecada', 'Chapa trapezoidal de acero 0,5–0,8 mm.'),
-        ('Policarbonato', 'Celular (6–32 mm) o compacto (3–12 mm).'),
-        ('Teja', 'Teja sobre panel o rastrel.'),
-        ('Vidrio', 'Laminado de seguridad (marquesinas y pérgolas).'),
-        ('Fotovoltaica', 'Paneles solares sobre la estructura.'),
-        ('Fibrocemento', 'Placa sin amianto.'),
-        ('Suelos', 'Tramex, chapa lagrimada, chapa colaborante con losa, tablero fenólico o madera.'),
-        ('Cerramientos', '«cerramiento de panel sándwich», «fachada de chapa», «laterales de policarbonato»…'),
-      ])
-        ListTile(dense: true, title: Text(k), subtitle: Text(v)),
+      ),
+      Expanded(
+        child: ListView(padding: const EdgeInsets.all(12), children: [
+          if (q.isEmpty) ...[
+            Text('Por defecto se usa S275JR. Escribe el material en la descripción (p. ej. «en S355», «inox 316», '
+                '«aluminio», «corten») o pon perfiles por partes: «pilares HEB 220, correas de tubo, tirantes de redondo 16».',
+                style: TextStyle(color: cs.onSurfaceVariant)),
+            const SizedBox(height: 8),
+            for (final g in allGrades)
+              Card(
+                child: ListTile(
+                  title: Text('${g.name}  ·  ${g.norm}', style: const TextStyle(fontWeight: FontWeight.w600)),
+                  subtitle: Text('${g.description}\n'
+                      'fy ${_n(g.fy)} · fu ${_n(g.fu)} N/mm² · E ${_n(g.e / 1000)} GPa · ${_n(g.density)} kg/m³\n'
+                      'Soldadura: ${g.weld}\n${g.bolts}'),
+                  isThreeLine: true,
+                ),
+              ),
+            const SizedBox(height: 8),
+            Text('Los materiales de esta lista se entienden en la descripción por cualquiera de sus nombres, '
+                'dan el peso propio al cálculo y el aspecto al render y a la foto IA.',
+                style: TextStyle(color: cs.onSurfaceVariant)),
+          ],
+          for (final g in MatGroup.values)
+            if (materialCatalog.any((m) => m.group == g && _hit(m, q))) ...[
+              Padding(
+                padding: const EdgeInsets.only(top: 12, bottom: 4),
+                child: Text(g.label, style: TextStyle(color: cs.primary, fontWeight: FontWeight.w700)),
+              ),
+              for (final m in materialCatalog.where((m) => m.group == g && _hit(m, q)))
+                Card(
+                  child: ExpansionTile(
+                    leading: m.look == null
+                        ? Icon(Icons.straighten, color: cs.primary)
+                        : Container(
+                            width: 28,
+                            height: 28,
+                            decoration: BoxDecoration(
+                              color: Color(m.look!.argb).withValues(alpha: m.look!.alpha.clamp(0.35, 1.0)),
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(color: cs.outlineVariant),
+                            ),
+                          ),
+                    title: Text(m.name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                    subtitle: Text(m.description, maxLines: 2, overflow: TextOverflow.ellipsis),
+                    childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                    expandedCrossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(m.description),
+                      if (m.uses.isNotEmpty) Text('\nUsos: ${m.uses.join(', ')}.'),
+                      if (m.sizesText.isNotEmpty) Text('Medidas: ${m.sizesText}'),
+                      if (m.weight.isNotEmpty) Text('Peso: ${m.weight}.'),
+                      Text('En la ficha: ${m.group.fichaField}.'),
+                      Text('También se entiende: ${m.aka.join(', ')}.', style: TextStyle(color: cs.onSurfaceVariant)),
+                    ],
+                  ),
+                ),
+            ],
+        ]),
+      ),
     ]);
   }
 }

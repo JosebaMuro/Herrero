@@ -1,3 +1,4 @@
+import '../engine/material_catalog.dart';
 import '../engine/model.dart';
 import '../engine/profiles.dart';
 import '../views/render_view.dart';
@@ -57,6 +58,8 @@ String _finish(Finish f) {
 String _roof(String roofing) {
   final r = roofing.toLowerCase();
   if (r.contains('sin cubierta')) return 'open frame without roof';
+  final cat = photoOf(roofing, groups: roofGroups);
+  if (cat != null) return cat;
   if (r.contains('sándwich') || r.contains('sandwich')) return 'insulated sandwich panel roof';
   if (r.contains('policarbonato')) return 'translucent polycarbonate roof sheets';
   if (r.contains('teja')) return 'tiled roof';
@@ -81,6 +84,7 @@ String photoPrompt(Design d, Finish f, PhotoScene scene, {bool roof = true}) {
     _finish(f),
     if (!rail) 'welded steel profiles, bolted connections, concrete footings',
     if (s.type.hasRoof) (roof ? _roof(s.roofing) : 'exposed steel skeleton frame without cladding'),
+    ...materialDetails(s, roof: roof),
     if (s.railing && !rail) 'steel safety railing',
     scene.english,
     'photorealistic, sharp focus, high detail, 35mm lens',
@@ -101,4 +105,35 @@ List<String> railingDetails(Design d) {
     if (heights.length >= 2) 'double handrail at two heights',
     if (bars.isNotEmpty) 'thin vertical ${bars.first.profile.family == ProfileFamily.round ? 'round ' : ''}bars',
   ];
+}
+
+/// Materiales del catálogo que se ven en la foto además de la cubierta: suelo
+/// (altillo, pasarela, escalera), relleno de barandilla, cerramiento y perfil
+/// de los pilares si se ha pedido. Como mucho dos, para no pasar de 77 tokens.
+List<String> materialDetails(StructureSpec s, {bool roof = true}) {
+  final out = <String>[];
+  if (!s.type.hasRoof && s.roofing.isNotEmpty) {
+    final f = photoOf(s.roofing, groups: {MatGroup.suelo, MatGroup.chapa});
+    if (f != null) out.add(f);
+  }
+  if (s.type == StructureType.barandilla && s.variant.startsWith('sobre peto')) {
+    out.add('horizontal flat steel slats mounted on top of a balcony parapet wall');
+    if (s.variant.contains('tiestos')) {
+      out.add('flower pots resting on inner rods');
+    }
+  } else if (s.type == StructureType.barandilla && s.variant.isNotEmpty && s.variant != 'barrotes') {
+    final f = photoOf(s.variant, groups: {MatGroup.vidrio, MatGroup.relleno});
+    if (f != null) out.add('$f infill');
+  }
+  if (roof && s.cladding.isNotEmpty) {
+    final f = photoOf(s.cladding, groups: {MatGroup.cerramiento}) ??
+        photoOf(s.cladding)?.replaceAll(RegExp(r'\s*roof( sheets)?'), ' sheets');
+    if (f != null) out.add('$f side walls'.replaceAll(' walls side walls', ' side walls'));
+  }
+  final col = s.parts['pilares'];
+  if (col != null) {
+    final f = photoOf(col, groups: {MatGroup.perfil});
+    if (f != null) out.add('$f columns'.replaceAll(' columns columns', ' columns'));
+  }
+  return out.take(2).toList();
 }

@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'bom.dart';
+import 'material_catalog.dart';
 import 'materials.dart';
 import 'model.dart';
 import 'normativa.dart';
@@ -207,6 +208,9 @@ double _roofingWeight(String r) {
   if (r.contains('colaborante')) return 2.60;
   if (r.contains('tablero')) return 0.20;
   if (r.contains('lagrimada')) return math.max(0.35, (e ?? 5) * 0.0785 + 0.05);
+  // resto de materiales del catálogo (chapa ondulada, placa asfáltica, chapa lisa…)
+  final cat = materialFor(r, groups: roofGroups);
+  if (cat != null && cat.kNm2 != null && cat.id != 'chapa-grecada') return cat.kNm2!;
   if (e != null) return math.max(0.08, e * 0.11 + 0.03); // chapa grecada por espesor
   return 0.12; // chapa grecada
 }

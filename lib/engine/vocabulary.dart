@@ -154,8 +154,11 @@ const List<(String, String)> _termRules = [
     'panel aislante|panel aislado|chapa aislada|panel de poliuretano|panel termoaislante|chapa sandwich',
     'panel sandwich',
   ),
-  ('chapa (?:trapezoidal|perfilada|nervada|minionda|ondulada)', 'chapa grecada'),
-  ('onduline|placas? traslucidas?|lucernarios?|policarbonato (?:alveolar|compacto)', 'policarbonato'),
+  ('chapa (?:trapezoidal|perfilada|nervada)', 'chapa grecada'),
+  ('chapa (?:minionda|de onda)|zinc ondulado|calaminas?', 'chapa ondulada'),
+  ('onduline|placas? asfalticas?|placas? bituminosas?', 'placa asfaltica'),
+  ('policarbonato alveolar', 'policarbonato celular'),
+  ('placas? traslucidas?|lucernarios?', 'policarbonato'),
   (
     'trames|tramix|tramet|tramez|tramek|emparrillado|rejilla de piso|piso de rejilla|suelo de rejilla|rejilla tramex',
     'tramex',
