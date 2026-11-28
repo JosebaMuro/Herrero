@@ -1,11 +1,15 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui' show AppExitResponse;
 
 import 'package:material_ui/material_ui.dart';
+import 'package:path_provider/path_provider.dart';
 
 import 'ai/model_gate.dart';
 import 'ai/model_manager.dart';
 import 'ai/accel.dart';
+import 'ai/freellmapi_android.dart';
+import 'ai/remote_settings.dart';
 import 'screens/home_screen.dart';
 import 'services/cut_prefs.dart';
 
@@ -19,7 +23,34 @@ Future<void> main() async {
   // Linux: despertar la gráfica NVIDIA desde el arranque (también sin escritorio), para
   // que CUDA la encuentre lista en la primera petición a la IA.
   if (Platform.isLinux) GpuPacks.instance.load();
+  _freeLlmApi();
   runApp(const HerreroApp());
+}
+
+/// FreeLLMAPI integrado: datos en la carpeta de la app, arranque en segundo
+/// plano si está activado y parada al cerrar Herrero.
+void _freeLlmApi() {
+  final fl = EmbeddedFreeLlmApi.instance;
+  fl.dataDir = () async => '${(await getApplicationSupportDirectory()).path}${Platform.pathSeparator}freellmapi';
+  if (Platform.isAndroid) fl.prepare = prepareAndroidFreeLlmApi;
+  unawaited(() async {
+    final s = await RemoteLlmStore.instance.load();
+    if (s.enabled && s.embedded) await fl.endpoint();
+  }()
+      .catchError((_) {}));
+  AppLifecycleListener(
+    onExitRequested: () async {
+      await fl.stop();
+      return AppExitResponse.exit;
+    },
+    onDetach: () => fl.stop(),
+  );
+  if (!Platform.isWindows) {
+    ProcessSignal.sigterm.watch().listen((_) async {
+      await fl.stop();
+      exit(0);
+    });
+  }
 }
 
 /// Límites de la caché de imágenes: en el móvil, menos (las vistas previas

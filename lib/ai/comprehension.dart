@@ -51,7 +51,14 @@ class Comprehension {
   /// endpoint (FreeLLMAPI…) si está activado en Ajustes y, si falla, el local.
   Future<LlmJob?> read(String prompt, StructureType type, void Function(String) onPartial) async {
     final remote = await RemoteLlmStore.instance.load();
-    if (remote.usable) return _readRemote(remote, prompt, type, onPartial);
+    if (remote.usable) {
+      try {
+        return await _readRemote(await resolveRemote(remote), prompt, type, onPartial);
+      } catch (e) {
+        // el integrado no arranca: el local, si se puede
+        if (!remote.fallbackLocal || !ModelManager.instance.reasonReady) rethrow;
+      }
+    }
     return _readLocal(prompt, type, onPartial);
   }
 

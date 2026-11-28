@@ -33,6 +33,8 @@ trap 'rm -rf "$WORK"' EXIT
 copy_bundle() {
   mkdir -p "$1"
   cp -a "$BUNDLE/herrero" "$BUNDLE/herrero-tui" "$BUNDLE/lib" "$BUNDLE/data" "$1/"
+  # FreeLLMAPI integrado (Node.js + servidor), si el bundle lo trae
+  if [[ -d "$BUNDLE/freellmapi" ]]; then cp -a "$BUNDLE/freellmapi" "$1/"; fi
 }
 
 desktop() { # $1 = Exec, $2 = Icon

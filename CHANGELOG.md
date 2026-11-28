@@ -2,11 +2,13 @@
 
 ## 4.3.0-e (sin publicar)
 
-- **Ajustes → Endpoint de IA (FreeLLMAPI)**: la ficha puede razonarla un LLM por un endpoint
-  compatible con OpenAI en lugar del Qwen3 local: [FreeLLMAPI](https://github.com/tashfeenahmed/freellmapi),
-  la pasarela de Infinito / 9000 tokens (`:8686`) u otro. URL base, clave opcional y modelo (`auto`),
-  botones para las direcciones habituales, detección de Infinito en el PC, **Probar conexión** con
-  lista de modelos y vuelta al modelo local si falla. La IA local sigue igual.
+- **FreeLLMAPI integrado** ([tashfeenahmed/freellmapi](https://github.com/tashfeenahmed/freellmapi),
+  MIT): los paquetes de Windows, Linux x64/ARM64 y Android traen FreeLLMAPI con su Node.js, y Herrero
+  lo arranca solo en 127.0.0.1 para razonar la ficha con los planes gratis de muchos proveedores. Sin
+  cuenta ni contraseña: la clave unificada se saca sola; botón para abrir su panel y añadir claves.
+- **Ajustes → Endpoint de IA**: integrado o externo (FreeLLMAPI de otro equipo, pasarela de Infinito /
+  9000 tokens, cualquier servidor OpenAI): URL, clave, modelo (`auto`), detección de Infinito,
+  **Probar conexión** y vuelta al modelo local si falla. La IA local sigue igual.
 
 ## 4.3.0-d (2026-11-26)
 

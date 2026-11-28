@@ -143,19 +143,23 @@ se genera un archivo para cada uno, listo para enviar solo su parte a cada perso
   facturas). Al pasar de un paso a otro se cancela lo que el nuevo paso no usa (por ejemplo, el
   razonamiento en segundo plano al ir a la foto IA) y se liberan las cachés. *Siempre* lo fuerza;
   *Nunca* permite varios modelos a la vez.
-- **Endpoint de IA (FreeLLMAPI)** (opcional): en **Ajustes** (rueda dentada de la pantalla
-  principal) puedes hacer que la ficha la razone un LLM por internet en lugar del modelo local de
-  razonamiento. Sirve [FreeLLMAPI](https://github.com/tashfeenahmed/freellmapi) (junta los planes
-  gratis de muchos proveedores tras un único `/v1`), la pasarela de **Infinito / 9000 tokens**
-  (`http://127.0.0.1:8686/v1`) o cualquier servidor compatible con OpenAI. Pasos: arranca
-  FreeLLMAPI (app de escritorio en `:31415`, Docker en `:3001` o el paquete de Infinito), añade en
-  *Keys* las claves de los proveedores, y en Herrero → Ajustes activa **Usar el endpoint**, elige
-  la dirección, pega la **clave unificada** y deja el modelo en `auto`. **Probar conexión** hace
-  una ficha de prueba y carga la lista de modelos. En PC, si Infinito está instalado, sus
-  direcciones y claves salen ya como botones. Desde el móvil usa la IP del PC (en Docker, arráncalo
-  con `HOST_BIND=0.0.0.0`). Si el endpoint falla y tienes el modelo local, razona el local.
-  La tipología y las medidas las siguen decidiendo las reglas: del LLM solo se aceptan los datos que
-  aparecen en tu texto.
+- **FreeLLMAPI integrado** (opcional): Herrero trae dentro
+  [FreeLLMAPI](https://github.com/tashfeenahmed/freellmapi), que junta los planes gratis de muchos
+  proveedores de IA tras un único endpoint, con su propio Node.js (Windows, Linux x64/ARM64 y
+  Android). En **Ajustes** (rueda dentada de la pantalla principal) activa **Usar el endpoint para
+  el razonamiento** con **Integrado**: Herrero lo arranca en este equipo (solo escucha en
+  `127.0.0.1`), saca la clave sola y lo para al cerrar. Sin claves ya usa los proveedores gratis que
+  no las piden; para más modelos, pulsa **Abrir panel** y añade tus claves en *Keys* (el panel se
+  abre sin contraseña desde el propio equipo). Las claves se guardan cifradas en la carpeta de datos
+  de Herrero. En iPhone no se puede arrancar un servidor dentro de una app: usa **Externo**.
+- **Endpoint externo**: en Ajustes → **Externo (URL)** puedes usar otro FreeLLMAPI (app de escritorio
+  en `:31415`, Docker en `:3001`), la pasarela de **Infinito / 9000 tokens** (`:8686`) o cualquier
+  servidor compatible con OpenAI: URL base, clave y modelo (`auto`). En PC, si Infinito está
+  instalado, sus direcciones y claves salen ya como botones. Desde el móvil usa la IP del PC (en
+  Docker, arráncalo con `HOST_BIND=0.0.0.0`).
+- En los dos casos **Probar conexión** hace una ficha de prueba y carga la lista de modelos; si el
+  endpoint falla y tienes el modelo local, razona el local. La tipología y las medidas las siguen
+  decidiendo las reglas: del LLM solo se aceptan los datos que aparecen en tu texto.
 
 ## 7. Dónde se guardan los datos
 

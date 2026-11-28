@@ -15,6 +15,14 @@ android {
         abortOnError = false
     }
 
+    // FreeLLMAPI integrado: Node.js va como libnode.so y Android solo deja
+    // ejecutarlo si las bibliotecas se extraen al instalar la app.
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

@@ -5,9 +5,19 @@ import 'dart:io';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'freellmapi_local.dart';
 import 'remote_llm.dart';
 
+export 'freellmapi_local.dart';
 export 'remote_llm.dart';
+
+/// Ajustes listos para llamar: con el FreeLLMAPI integrado, lo arranca y pone
+/// su URL y su clave.
+Future<RemoteLlmSettings> resolveRemote(RemoteLlmSettings s) async {
+  if (!s.embedded) return s;
+  final (url, key) = await EmbeddedFreeLlmApi.instance.endpoint();
+  return s.copyWith(baseUrl: url, apiKey: key);
+}
 
 /// Pasarela integrada de Infinito (9000 tokens): OpenAI en :8686/v1, modelo auto.
 const infinitoGateway = 'http://127.0.0.1:8686/v1';

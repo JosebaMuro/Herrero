@@ -196,9 +196,28 @@ no tener varios documentos en memoria. `buildPdf` (proyecto completo) usa todos 
 - `detectInfinito` lee `config.json` de Infinito / 9000 tokens (`%APPDATA%\infinito`,
   `~/.config/infinito`, o `INFINITO_HOME`): pasarela `gateway_host:gateway_port/v1` con `gateway_key`
   y `freellmapi.url` con su `api_key`.
+- **Integrado** (`ai/freellmapi_local.dart`): `scripts/bundle_freellmapi.sh <destino> <carpeta>` deja
+  `freellmapi/{node,app,pack.json}` junto al ejecutable (Windows: carpeta del .exe; Linux: bundle,
+  .deb y .AppImage). FreeLLMAPI fijado en `v0.16.51` (`FREELLMAPI_REF`), solo servidor + panel
+  compilados y sus dependencias de producción (sin sharp). `EmbeddedFreeLlmApi` lo arranca con
+  `FREEAPI_DESKTOP=1` en 127.0.0.1:31480 (o el siguiente libre hasta :31489), `ENCRYPTION_KEY` propia
+  en `<soporte>/freellmapi/encryption.key`, base de datos y registro en esa carpeta. La clave unificada
+  sale de `POST /api/auth/desktop-session` + `GET /api/settings/api-key` (solo desde loopback). Si ya
+  hay uno de Herrero en el puerto (cierre brusco), lo reutiliza. Se para con `AppLifecycleListener`
+  y SIGTERM.
+- **Android** (`ai/freellmapi_android.dart`): Android 10+ solo ejecuta lo que el instalador extrae de
+  `lib/<abi>/` con nombre `lib*.so`. El CI baja Node de Termux (`scripts/termux_fetch.py nodejs-lts
+  ca-certificates`) y `scripts/android_node.py` lo deja como `libnode.so` con sus bibliotecas
+  renombradas (`libssl.so.3` -> `libssl3.so`, cambiando DT_NEEDED/DT_SONAME en el sitio) en
+  `jniLibs/arm64-v8a`, más `libfreellmapi_app.so` (tar.gz con `app/` y `cert.pem`), que la app
+  descomprime en su carpeta. La base de datos va con `node:sqlite` (FreeLLMAPI lo elige en Android).
+  `useLegacyPackaging`/`extractNativeLibs` para que las bibliotecas existan como ficheros. El job
+  `android-freellmapi` lo arranca en un emulador x86_64 (`scripts/android_freellmapi_test.sh`).
+- iOS no puede lanzar procesos: solo endpoint externo.
 - Android lleva `usesCleartextTraffic` e iOS `NSAllowsLocalNetworking` para llegar a `http://` en la red local.
 - Pruebas: `test/remote_llm_test.dart` (servidor falso: SSE, JSON, razonamiento, 401, sin servidor,
-  cancelación, modelos, config de Infinito) y `test/settings_screen_test.dart`.
+  cancelación, modelos, config de Infinito), `test/settings_screen_test.dart` y
+  `test/freellmapi_embedded_test.dart` (con `HERRERO_FREELLMAPI=<bundle>`: arranque real, clave, /v1, reutilización y parada; lo pasa el CI en Windows y Linux).
 
 ## 10. Plataformas, compilación y publicación
 

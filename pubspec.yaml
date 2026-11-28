@@ -50,6 +50,7 @@ dependencies:
   url_launcher: ^6.3.1
   geolocator: ^14.0.1
   geolocator_linux: ^0.2.6
+  archive: ^4.7.1
 dev_dependencies:
   flutter_test:
     sdk: flutter

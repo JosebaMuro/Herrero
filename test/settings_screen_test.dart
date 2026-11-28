@@ -51,18 +51,30 @@ void main() {
         await utf8.decodeStream(req);
         calls++;
         req.response.headers.contentType = ContentType.json;
-        req.response.write(jsonEncode({
-          'choices': [
-            {'message': {'content': '{"tipo": "marquesina", "largo_m": 7.5, "ubicacion": "Burgos"}'}}
-          ]
-        }));
+        req.response.write(
+          jsonEncode({
+            'choices': [
+              {
+                'message': {'content': '{"tipo": "marquesina", "largo_m": 7.5, "ubicacion": "Burgos"}'},
+              },
+            ],
+          }),
+        );
         await req.response.close();
       });
     });
     addTearDown(() => srv.close(force: true));
     SharedPreferences.setMockInitialValues({});
-    await tester.runAsync(() => RemoteLlmStore.instance
-        .save(RemoteLlmSettings(enabled: true, baseUrl: 'http://127.0.0.1:${srv.port}', fallbackLocal: false)));
+    await tester.runAsync(
+      () => RemoteLlmStore.instance.save(
+        RemoteLlmSettings(
+          enabled: true,
+          embedded: false,
+          baseUrl: 'http://127.0.0.1:${srv.port}',
+          fallbackLocal: false,
+        ),
+      ),
+    );
     await tester.pumpWidget(const MaterialApp(home: UnderstandScreen(prompt: 'tejadillo para tres coches en Burgos')));
     await settle(tester, 40);
     expect(find.text('Comprensión con IA no instalada'), findsNothing);

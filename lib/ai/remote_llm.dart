@@ -28,7 +28,11 @@ class RemoteLlmSettings {
     this.model = 'auto',
     this.fallbackLocal = true,
     this.timeoutS = 90,
+    this.embedded = true,
   });
+
+  /// Usar el FreeLLMAPI que trae Herrero (lo arranca él, URL y clave solas).
+  final bool embedded;
 
   /// Usar el endpoint para el razonamiento de la ficha.
   final bool enabled;
@@ -46,10 +50,16 @@ class RemoteLlmSettings {
   final bool fallbackLocal;
   final int timeoutS;
 
-  bool get usable => enabled && baseUrl.trim().isNotEmpty;
+  bool get usable => enabled && (embedded || baseUrl.trim().isNotEmpty);
 
   RemoteLlmSettings copyWith(
-          {bool? enabled, String? baseUrl, String? apiKey, String? model, bool? fallbackLocal, int? timeoutS}) =>
+          {bool? enabled,
+          String? baseUrl,
+          String? apiKey,
+          String? model,
+          bool? fallbackLocal,
+          int? timeoutS,
+          bool? embedded}) =>
       RemoteLlmSettings(
         enabled: enabled ?? this.enabled,
         baseUrl: baseUrl ?? this.baseUrl,
@@ -57,6 +67,7 @@ class RemoteLlmSettings {
         model: model ?? this.model,
         fallbackLocal: fallbackLocal ?? this.fallbackLocal,
         timeoutS: timeoutS ?? this.timeoutS,
+        embedded: embedded ?? this.embedded,
       );
 
   Map<String, Object> toJson() => {
@@ -66,6 +77,7 @@ class RemoteLlmSettings {
         'model': model,
         'fallbackLocal': fallbackLocal,
         'timeoutS': timeoutS,
+        'embedded': embedded,
       };
 
   factory RemoteLlmSettings.fromJson(Map<String, dynamic> j) => RemoteLlmSettings(
@@ -75,6 +87,7 @@ class RemoteLlmSettings {
         model: ((j['model'] as String?) ?? '').trim().isEmpty ? 'auto' : (j['model'] as String).trim(),
         fallbackLocal: j['fallbackLocal'] != false,
         timeoutS: (j['timeoutS'] as num?)?.toInt() ?? 90,
+        embedded: j['embedded'] != false,
       );
 }
 
