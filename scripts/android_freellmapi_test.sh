@@ -13,9 +13,9 @@ adb shell chmod 755 $D/lib/*
 adb shell "cd $D/pack && tar -xzf $D/lib/libfreellmapi_app.so"
 adb shell "echo '# Herrero' > $D/pack/openssl.cnf"
 ENV="LD_LIBRARY_PATH=$D/lib OPENSSL_CONF=$D/pack/openssl.cnf SSL_CERT_FILE=$D/pack/cert.pem NODE_EXTRA_CA_CERTS=$D/pack/cert.pem TMPDIR=$D/tmp HOME=$D/pack"
-adb shell "$ENV $D/lib/libnode.so --version"
-adb shell "$ENV $D/lib/libnode.so -e \"console.log(require('node:sqlite') ? 'node:sqlite ok' : 'sin sqlite')\""
-adb shell "cd $D/pack/app/server && $ENV NODE_ENV=production HOST=127.0.0.1 PORT=31480 FREEAPI_DESKTOP=1 ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef FREEAPI_DB_PATH=$D/data/freeapi.db FREEAPI_ENV_PATH=$D/data/.env nohup $D/lib/libnode.so dist/index.js > $D/data/log.txt 2>&1 &"
+timeout 60 adb shell "$ENV $D/lib/libnode.so --version"
+timeout 60 adb shell "$ENV $D/lib/libnode.so -e \"console.log(require('node:sqlite') ? 'node:sqlite ok' : 'sin sqlite')\""
+timeout 20 adb shell "cd $D/pack/app/server && $ENV NODE_ENV=production HOST=127.0.0.1 PORT=31480 FREEAPI_DESKTOP=1 ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef FREEAPI_DB_PATH=$D/data/freeapi.db FREEAPI_ENV_PATH=$D/data/.env setsid nohup $D/lib/libnode.so dist/index.js < /dev/null > $D/data/log.txt 2>&1 &" < /dev/null || true
 cat > /tmp/probe.js <<'JS'
 const base = 'http://127.0.0.1:31480';
 (async () => {
@@ -40,7 +40,7 @@ const base = 'http://127.0.0.1:31480';
 })();
 JS
 adb push /tmp/probe.js $D/probe.js >/dev/null
-if ! adb shell "$ENV $D/lib/libnode.so $D/probe.js"; then
+if ! timeout 300 adb shell "$ENV $D/lib/libnode.so $D/probe.js"; then
   adb shell cat $D/data/log.txt || true
   exit 1
 fi
