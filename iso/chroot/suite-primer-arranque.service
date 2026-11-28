@@ -1,0 +1,16 @@
+[Unit]
+Description=Suite · configurar Herrero y Director de rol en el primer arranque
+Wants=network-online.target
+After=network-online.target
+# no en la sesión live (casper), solo en el sistema instalado
+ConditionKernelCommandLine=!boot=casper
+ConditionPathExists=!/var/lib/suite/primer-arranque.hecho
+
+[Service]
+# exec y no oneshot: las descargas (CUDA, modelos) no retrasan el escritorio
+Type=exec
+ExecStart=/opt/suite/iso/primer-arranque.sh
+Nice=10
+
+[Install]
+WantedBy=multi-user.target
