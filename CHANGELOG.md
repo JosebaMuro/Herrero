@@ -1,5 +1,13 @@
 # Historial de versiones
 
+## 4.3.0-e (sin publicar)
+
+- **Ajustes → Endpoint de IA (FreeLLMAPI)**: la ficha puede razonarla un LLM por un endpoint
+  compatible con OpenAI en lugar del Qwen3 local: [FreeLLMAPI](https://github.com/tashfeenahmed/freellmapi),
+  la pasarela de Infinito / 9000 tokens (`:8686`) u otro. URL base, clave opcional y modelo (`auto`),
+  botones para las direcciones habituales, detección de Infinito en el PC, **Probar conexión** con
+  lista de modelos y vuelta al modelo local si falla. La IA local sigue igual.
+
 ## 4.3.0-d (2026-11-26)
 
 - **Catálogo de materiales** (`engine/material_catalog.dart`): 36 materiales con sinónimos y

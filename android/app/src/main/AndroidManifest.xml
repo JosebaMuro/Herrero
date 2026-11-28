@@ -4,10 +4,12 @@
     <!-- ubicación aproximada para buscar precios y distribuidores cercanos -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <!-- usesCleartextTraffic: el endpoint de IA (FreeLLMAPI, Infinito) suele ir por http:// en la red local -->
     <application
         android:label="herrero"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:usesCleartextTraffic="true">
         <activity
             android:name=".MainActivity"
             android:exported="true"

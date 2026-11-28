@@ -143,6 +143,19 @@ se genera un archivo para cada uno, listo para enviar solo su parte a cada perso
   facturas). Al pasar de un paso a otro se cancela lo que el nuevo paso no usa (por ejemplo, el
   razonamiento en segundo plano al ir a la foto IA) y se liberan las cachés. *Siempre* lo fuerza;
   *Nunca* permite varios modelos a la vez.
+- **Endpoint de IA (FreeLLMAPI)** (opcional): en **Ajustes** (rueda dentada de la pantalla
+  principal) puedes hacer que la ficha la razone un LLM por internet en lugar del modelo local de
+  razonamiento. Sirve [FreeLLMAPI](https://github.com/tashfeenahmed/freellmapi) (junta los planes
+  gratis de muchos proveedores tras un único `/v1`), la pasarela de **Infinito / 9000 tokens**
+  (`http://127.0.0.1:8686/v1`) o cualquier servidor compatible con OpenAI. Pasos: arranca
+  FreeLLMAPI (app de escritorio en `:31415`, Docker en `:3001` o el paquete de Infinito), añade en
+  *Keys* las claves de los proveedores, y en Herrero → Ajustes activa **Usar el endpoint**, elige
+  la dirección, pega la **clave unificada** y deja el modelo en `auto`. **Probar conexión** hace
+  una ficha de prueba y carga la lista de modelos. En PC, si Infinito está instalado, sus
+  direcciones y claves salen ya como botones. Desde el móvil usa la IP del PC (en Docker, arráncalo
+  con `HOST_BIND=0.0.0.0`). Si el endpoint falla y tienes el modelo local, razona el local.
+  La tipología y las medidas las siguen decidiendo las reglas: del LLM solo se aceptan los datos que
+  aparecen en tu texto.
 
 ## 7. Dónde se guardan los datos
 
@@ -181,4 +194,5 @@ usa GeoClue y la elección de archivos, zenity o kdialog. Ver `LEEME.txt` dentro
 
 Las facturas, planos y fotos se leen en tu equipo. Solo salen a internet: la posición o el nombre
 de la población para el mapa (OpenStreetMap / Nominatim), la búsqueda de distribuidores (Overpass)
-y la página de tarifas que pidas leer.
+y la página de tarifas que pidas leer. Si activas el **endpoint de IA** en Ajustes, el texto de la
+petición se envía a ese endpoint (y de ahí a los proveedores que tenga configurados).

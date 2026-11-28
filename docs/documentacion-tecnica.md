@@ -182,6 +182,24 @@ no tener varios documentos en memoria. `buildPdf` (proyecto completo) usa todos 
   invertida (altura exterior, vuelo y cara interior anclada al peto), listones horizontales y, si se
   piden tiestos, vuelo intermedio con dos redondos. Variante `sobre peto` (· tiestos).
 
+### Endpoint de IA remoto (`ai/remote_llm.dart`, `ai/remote_settings.dart`)
+
+- Alternativa opcional al LLM local para rellenar la ficha: cliente OpenAI (`POST {base}/chat/completions`
+  con `stream: true`, SSE y, si el servidor no hace streaming, JSON normal; `GET {base}/models`).
+  Probado con la forma de FreeLLMAPI (`model: auto`, cabecera `X-Routed-Via`, `reasoning_content`).
+- `remoteMessages` usa el mismo `llmSystem`/`llmUser`/ejemplos que el local, pero como chat no admite
+  semilla: se pide el JSON entero empezando por `{"tipo": "<tipología>"`. `splitRemoteAnswer` quita
+  `<think>` y vallas ```; la pantalla de la ficha distingue la respuesta entera (empieza por `{`) de
+  la continuación del local (tras `llmSeed`). Las reglas de respaldo de `understand` no cambian.
+- `Comprehension.read`: si `ai.remote` está activo usa el endpoint y, si falla y
+  `fallbackLocal`, el Qwen3 local. No pasa por `ModelGate` (no gasta RAM).
+- `detectInfinito` lee `config.json` de Infinito / 9000 tokens (`%APPDATA%\infinito`,
+  `~/.config/infinito`, o `INFINITO_HOME`): pasarela `gateway_host:gateway_port/v1` con `gateway_key`
+  y `freellmapi.url` con su `api_key`.
+- Android lleva `usesCleartextTraffic` e iOS `NSAllowsLocalNetworking` para llegar a `http://` en la red local.
+- Pruebas: `test/remote_llm_test.dart` (servidor falso: SSE, JSON, razonamiento, 401, sin servidor,
+  cancelación, modelos, config de Infinito) y `test/settings_screen_test.dart`.
+
 ## 10. Plataformas, compilación y publicación
 
 - `flutter pub get`, `python3 scripts/ort_runtime.py <android|windows|linux|ios>`, `flutter build …`.

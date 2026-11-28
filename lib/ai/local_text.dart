@@ -288,7 +288,7 @@ class LlmResult {
 class LlmJob {
   final Future<LlmResult> future;
   final void Function() cancel;
-  LlmJob._(this.future, this.cancel);
+  LlmJob(this.future, this.cancel);
 }
 
 /// Lanza el LLM en un isolate; [onPartial] recibe el texto según se genera.
@@ -322,7 +322,7 @@ LlmJob startLlm(LlmRequest req, void Function(String partial) onPartial) {
     if (!completer.isCompleted) completer.completeError(e);
     rp.close();
   });
-  return LlmJob._(completer.future, () {
+  return LlmJob(completer.future, () {
     cancelled = true;
     if (!completer.isCompleted) completer.completeError(Exception('Cancelado'));
     finish();

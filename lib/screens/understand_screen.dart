@@ -1,5 +1,6 @@
 import 'package:material_ui/material_ui.dart';
 
+import '../ai/remote_settings.dart';
 import '../ai/comprehension.dart';
 import '../ai/learned_examples.dart';
 import '../ai/local_text.dart';
@@ -62,11 +63,16 @@ class _UnderstandScreenState extends State<UnderstandScreen> {
     try {
       await mgr.load();
     } catch (_) {
-      if (mounted) setState(() => _noModels = true);
-      return;
+      // sin catálogo local aún puede razonar el endpoint de Ajustes
+      if (!(await RemoteLlmStore.instance.load()).usable) {
+        if (mounted) setState(() => _noModels = true);
+        return;
+      }
     }
     if (!mounted) return;
-    setState(() => _noModels = !mgr.embedReady && !mgr.reasonReady);
+    final canReason = await Comprehension.instance.canReason();
+    if (!mounted) return;
+    setState(() => _noModels = !mgr.embedReady && !canReason);
     if (mgr.embedReady) {
       setState(() => _embedBusy = true);
       try {
@@ -78,15 +84,19 @@ class _UnderstandScreenState extends State<UnderstandScreen> {
       _embedBusy = false;
       _recompute();
     }
-    if (mgr.reasonReady) {
+    if (canReason) {
       final type = u.type;
       setState(() => _llmBusy = true);
       try {
         _job = await Comprehension.instance.read(widget.prompt, type, (p) {
           if (mounted) setState(() => _partial = p);
         });
-        final r = await _job!.future;
-        _llm = parseLlmJson(r.text, llmSeed(type));
+        final job = _job;
+        if (job == null) throw Exception('sin modelo de razonamiento');
+        final r = await job.future;
+        // el endpoint devuelve la ficha entera; el local sigue tras la semilla
+        final t = r.text.trimLeft();
+        _llm = t.startsWith('{') ? parseLlmJson(t) : parseLlmJson(r.text, llmSeed(type));
         _thought = r.thought;
       } catch (e) {
         if (!'$e'.contains('Cancelado')) _aiError = 'Razonamiento: $e';
@@ -348,7 +358,7 @@ class _UnderstandScreenState extends State<UnderstandScreen> {
                       leading: const Icon(Icons.psychology_outlined),
                       title: const Text('Comprensión con IA no instalada'),
                       subtitle: const Text('La ficha sale de las reglas del oficio. Descarga «Comprensión» y '
-                          '«Razonamiento» para que entienda peticiones con tus palabras.'),
+                          '«Razonamiento», o activa un endpoint (FreeLLMAPI) en Ajustes, para que entienda peticiones con tus palabras.'),
                       trailing: const Icon(Icons.chevron_right),
                       onTap: () => Navigator.of(context)
                           .push(MaterialPageRoute<void>(builder: (_) => const ModelsScreen()))

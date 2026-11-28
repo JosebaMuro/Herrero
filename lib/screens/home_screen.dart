@@ -13,6 +13,7 @@ import 'models_screen.dart';
 import 'plan_import_screen.dart';
 import 'prices_screen.dart';
 import 'projects_screen.dart';
+import 'settings_screen.dart';
 import 'understand_screen.dart';
 
 const examples = [
@@ -186,6 +187,11 @@ class _HomeScreenState extends State<HomeScreen> {
             tooltip: 'Modelos de IA locales',
             icon: const Icon(Icons.download_for_offline_outlined),
             onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const ModelsScreen())),
+          ),
+          IconButton(
+            tooltip: 'Ajustes (endpoint de IA: FreeLLMAPI)',
+            icon: const Icon(Icons.settings_outlined),
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const SettingsScreen())),
           ),
           if (bootModeSupported && File('/usr/local/bin/herrero-tui').existsSync())
             IconButton(
