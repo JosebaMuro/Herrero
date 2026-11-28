@@ -1,0 +1,78 @@
+name: ISO de Ubuntu MATE con la suite
+
+# Construye la ISO de Ubuntu MATE con Herrero y Director de rol ya instalados (iso/LEEME.md)
+# y la publica, troceada en partes de 1,9 GB (límite de GitHub: 2 GB por fichero), en la
+# release «iso-ubuntu-mate». Se lanza a mano desde la pestaña Actions.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Versión de Ubuntu MATE (p. ej. 24.04.5)"
+        type: string
+        default: "24.04.5"
+      director:
+        description: "Incluir Director de rol (≈1 GB más)"
+        type: boolean
+        default: true
+      publicar:
+        description: "Publicar en la release iso-ubuntu-mate (si no, solo se construye)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  iso:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - name: Liberar disco (hacen falta ≈25 GB)
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL \
+            /usr/local/share/boost /usr/share/swift /usr/local/.ghcup "$AGENT_TOOLSDIRECTORY"
+          sudo docker image prune -af >/dev/null 2>&1 || true
+          df -h /
+      - name: Herramientas
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq xorriso squashfs-tools
+      - name: Construir la ISO
+        run: |
+          opts=(--version "${{ inputs.version }}" --trabajo "$RUNNER_TEMP/trabajo-iso"
+                --salida "$PWD/ubuntu-mate-${{ inputs.version }}-suite-amd64.iso")
+          [[ "${{ inputs.director }}" == true ]] || opts+=(--sin-director)
+          sudo ./iso/construir-iso.sh "${opts[@]}"
+          sudo chown "$USER:" ubuntu-mate-*-suite-amd64.iso*
+          ls -l ubuntu-mate-*-suite-amd64.iso*
+      - name: Trocear
+        run: |
+          iso=ubuntu-mate-${{ inputs.version }}-suite-amd64.iso
+          mkdir dist
+          split -b 1900M -d -a 1 "$iso" "dist/$iso.parte"
+          rm "$iso"
+          mv "$iso.sha256" dist/
+          ( cd dist && sha256sum "$iso".parte* > partes.sha256 )
+          ls -l dist
+      - name: Publicar en la release iso-ubuntu-mate
+        if: inputs.publicar
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          iso=ubuntu-mate-${{ inputs.version }}-suite-amd64.iso
+          notes="Ubuntu MATE ${{ inputs.version }} con Herrero y Director de rol ya instalados (también en la sesión live).
+
+          Descarga todas las partes y únelas:
+          - Linux/macOS: \`cat $iso.parte* > $iso\`
+          - Windows (cmd): \`copy /b $iso.parte0+$iso.parte1+$iso.parte2 $iso\` (todas las partes, en orden)
+
+          Comprueba la ISO con \`sha256sum -c $iso.sha256\` y grábala en un USB (balenaEtcher, Ventoy o dd).
+          Más detalles en iso/LEEME.md."
+          if gh release view iso-ubuntu-mate >/dev/null 2>&1; then
+            for a in $(gh release view iso-ubuntu-mate --json assets -q '.assets[].name'); do
+              gh release delete-asset iso-ubuntu-mate "$a" -y
+            done
+            gh release edit iso-ubuntu-mate --notes "$notes"
+          else
+            gh release create iso-ubuntu-mate --prerelease --title "ISO de Ubuntu MATE con la suite" --notes "$notes"
+          fi
+          gh release upload iso-ubuntu-mate dist/* --clobber
