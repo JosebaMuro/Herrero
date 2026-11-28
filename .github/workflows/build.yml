@@ -45,6 +45,19 @@ jobs:
       - run: flutter pub get
       - name: ONNX Runtime 1.20 (operadores del VLM)
         run: python3 scripts/ort_runtime.py android
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: FreeLLMAPI dentro del APK (Node.js de Termux como libnode.so)
+        run: |
+          pip install zstandard
+          J=android/app/src/main/jniLibs/arm64-v8a
+          python3 scripts/termux_fetch.py build/termux nodejs-lts ca-certificates
+          grep -E '^nodejs' build/termux/PACKAGES.txt
+          python3 scripts/android_node.py build/termux $J
+          scripts/bundle_freellmapi.sh android-arm64 build/fl-android
+          python3 scripts/android_node.py --pack build/fl-android/freellmapi build/termux/usr/etc/tls/cert.pem $J/libfreellmapi_app.so
+          ls -la $J; du -sh $J
       - run: flutter build apk --release
       - run: cp build/app/outputs/flutter-apk/app-release.apk Herrero-android.apk
       # APK solo para móviles de 64 bits (casi todos desde 2017): bastante más ligero
@@ -57,12 +70,49 @@ jobs:
             "$AAPT2" dump permissions "$a"
             "$AAPT2" dump permissions "$a" | grep -q "android.permission.INTERNET" || { echo "::error::$a sin permiso INTERNET"; exit 1; }
           done
+          # FreeLLMAPI: Node y su paquete dentro del APK
+          for a in Herrero-android.apk Herrero-android-arm64.apk; do
+            for f in lib/arm64-v8a/libnode.so lib/arm64-v8a/libfreellmapi_app.so; do
+              unzip -l "$a" | grep -q " $f$" || { echo "::error::$a sin $f"; exit 1; }
+            done
+          done
       - uses: actions/upload-artifact@v4
         with:
           name: Herrero-android
           path: |
             Herrero-android.apk
             Herrero-android-arm64.apk
+
+  android-freellmapi:
+    # Node.js de Termux con las bibliotecas renombradas y FreeLLMAPI con node:sqlite,
+    # arrancado de verdad en un emulador Android (x86_64, misma preparación que el APK).
+    name: FreeLLMAPI en Android (emulador)
+    runs-on: ubuntu-latest
+    needs: test
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Preparar Node (x86_64) y FreeLLMAPI
+        run: |
+          pip install zstandard
+          TERMUX_ARCH=x86_64 python3 scripts/termux_fetch.py build/termux nodejs-lts ca-certificates
+          python3 scripts/android_node.py build/termux build/jni
+          scripts/bundle_freellmapi.sh android-arm64 build/fl-android
+          python3 scripts/android_node.py --pack build/fl-android/freellmapi build/termux/usr/etc/tls/cert.pem build/jni/libfreellmapi_app.so
+      - name: KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: bash scripts/android_freellmapi_test.sh build/jni
 
   windows:
     runs-on: windows-latest
@@ -78,6 +128,17 @@ jobs:
       - name: ONNX Runtime 1.20 (operadores del VLM)
         run: python scripts/ort_runtime.py windows
       - run: flutter build windows --release
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: FreeLLMAPI dentro del paquete (Node.js + servidor)
+        shell: bash
+        run: scripts/bundle_freellmapi.sh win-x64 build/windows/x64/runner/Release
+      - name: Probar FreeLLMAPI integrado (arranca, clave sola, /v1)
+        shell: pwsh
+        run: |
+          $env:HERRERO_FREELLMAPI = (Resolve-Path build/windows/x64/runner/Release/freellmapi).Path
+          flutter test test/freellmapi_embedded_test.dart
       - name: Comprobar ONNX Runtime con DirectML (GPU) y vuelta a CPU
         shell: pwsh
         run: |
@@ -126,6 +187,13 @@ jobs:
       - run: flutter build linux --release
       - name: TUI de terminal (herrero-tui)
         run: scripts/build_tui.sh build/linux/x64/release/bundle/herrero-tui
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: FreeLLMAPI dentro del paquete (Node.js + servidor)
+        run: scripts/bundle_freellmapi.sh linux-x64 build/linux/x64/release/bundle
+      - name: Probar FreeLLMAPI integrado (arranca, clave sola, /v1)
+        run: HERRERO_FREELLMAPI=$PWD/build/linux/x64/release/bundle/freellmapi flutter test test/freellmapi_embedded_test.dart
       - name: Comprobar la TUI y ONNX Runtime del paquete
         run: |
           B=build/linux/x64/release/bundle
@@ -178,10 +246,17 @@ jobs:
       - run: flutter build linux --release
       - name: TUI de terminal (herrero-tui)
         run: scripts/build_tui.sh build/linux/arm64/release/bundle/herrero-tui
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: FreeLLMAPI dentro del paquete (Node.js + servidor, ARM64)
+        run: scripts/bundle_freellmapi.sh linux-arm64 build/linux/arm64/release/bundle
+      - name: Probar FreeLLMAPI integrado (arranca, clave sola, /v1)
+        run: HERRERO_FREELLMAPI=$PWD/build/linux/arm64/release/bundle/freellmapi flutter test test/freellmapi_embedded_test.dart
       - name: Comprobar que todo es ARM64
         run: |
           B=build/linux/arm64/release/bundle
-          for f in $B/herrero $B/herrero-tui $B/lib/libonnxruntime.so.1.15.1; do
+          for f in $B/herrero $B/herrero-tui $B/lib/libonnxruntime.so.1.15.1 $B/freellmapi/node/bin/node; do
             file -L "$f"
             file -L "$f" | grep -q "ARM aarch64" || { echo "::error::$f no es ARM64"; exit 1; }
           done

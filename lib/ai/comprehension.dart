@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import '../engine/comprehension_aids.dart';
 import '../engine/model.dart';
 import 'comprehension_core.dart';
@@ -5,6 +7,7 @@ import 'learned_examples.dart';
 import 'local_text.dart';
 import 'model_gate.dart';
 import 'model_manager.dart';
+import 'remote_settings.dart';
 
 export 'comprehension_core.dart';
 
@@ -40,8 +43,60 @@ class Comprehension {
         () => engine.rank(prompt, threads: threads, engine: mgr.engineFor(ModelTask.understand)));
   }
 
-  /// Lanza el LLM para leer la petición con la tipología ya decidida.
+  /// Hay con qué razonar la ficha: el endpoint de Ajustes o el LLM local.
+  Future<bool> canReason() async =>
+      (await RemoteLlmStore.instance.load()).usable || ModelManager.instance.reasonReady;
+
+  /// Lanza el LLM para leer la petición con la tipología ya decidida: el
+  /// endpoint (FreeLLMAPI…) si está activado en Ajustes y, si falla, el local.
   Future<LlmJob?> read(String prompt, StructureType type, void Function(String) onPartial) async {
+    final remote = await RemoteLlmStore.instance.load();
+    if (remote.usable) {
+      try {
+        return await _readRemote(await resolveRemote(remote), prompt, type, onPartial);
+      } catch (e) {
+        // el integrado no arranca: el local, si se puede
+        if (!remote.fallbackLocal || !ModelManager.instance.reasonReady) rethrow;
+      }
+    }
+    return _readLocal(prompt, type, onPartial);
+  }
+
+  Future<LlmJob> _readRemote(
+      RemoteLlmSettings s, String prompt, StructureType type, void Function(String) onPartial) async {
+    final pickEngine = ModelManager.instance.embedReady ? await _get() : null;
+    final examples = pickEngine == null
+        ? pickExamples(prompt, type, pool: [...llmExamplePool, ...await LearnedExamples.instance.load()])
+        : await _examples(pickEngine, prompt, type);
+    final completer = Completer<LlmResult>();
+    var cancelled = false;
+    LlmJob? current = startRemoteLlm(s, prompt, type, onPartial, examples: examples);
+    current.future.then((r) {
+      if (!completer.isCompleted) completer.complete(r);
+    }, onError: (Object e) async {
+      if (completer.isCompleted || cancelled) return;
+      final local = s.fallbackLocal && ModelManager.instance.reasonReady
+          ? await _readLocal(prompt, type, onPartial)
+          : null;
+      if (local == null || cancelled) {
+        if (!completer.isCompleted) completer.completeError(e);
+        return;
+      }
+      current = local;
+      local.future.then((r) {
+        if (!completer.isCompleted) completer.complete(r);
+      }, onError: (Object e2) {
+        if (!completer.isCompleted) completer.completeError(Exception('$e · local: $e2'));
+      });
+    });
+    return LlmJob(completer.future, () {
+      cancelled = true;
+      current?.cancel();
+      if (!completer.isCompleted) completer.completeError(Exception('Cancelado'));
+    });
+  }
+
+  Future<LlmJob?> _readLocal(String prompt, StructureType type, void Function(String) onPartial) async {
     final mgr = ModelManager.instance;
     if (!mgr.reasonReady) return null;
     final engine = await _get();

@@ -1,5 +1,15 @@
 # Historial de versiones
 
+## 4.3.0-e (sin publicar)
+
+- **FreeLLMAPI integrado** ([tashfeenahmed/freellmapi](https://github.com/tashfeenahmed/freellmapi),
+  MIT): los paquetes de Windows, Linux x64/ARM64 y Android traen FreeLLMAPI con su Node.js, y Herrero
+  lo arranca solo en 127.0.0.1 para razonar la ficha con los planes gratis de muchos proveedores. Sin
+  cuenta ni contraseña: la clave unificada se saca sola; botón para abrir su panel y añadir claves.
+- **Ajustes → Endpoint de IA**: integrado o externo (FreeLLMAPI de otro equipo, pasarela de Infinito /
+  9000 tokens, cualquier servidor OpenAI): URL, clave, modelo (`auto`), detección de Infinito,
+  **Probar conexión** y vuelta al modelo local si falla. La IA local sigue igual.
+
 ## 4.3.0-d (2026-11-26)
 
 - **Catálogo de materiales** (`engine/material_catalog.dart`): 36 materiales con sinónimos y
