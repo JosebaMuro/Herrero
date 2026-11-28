@@ -2,8 +2,10 @@
 Description=Suite · configurar Herrero y Director de rol en el primer arranque
 Wants=network-online.target
 After=network-online.target
-# no en la sesión live (casper), solo en el sistema instalado
+# no en la sesión live (casper), solo en el sistema instalado: en 24.04 la línea de arranque
+# del live no lleva boot=casper, pero casper siempre deja su registro
 ConditionKernelCommandLine=!boot=casper
+ConditionPathExists=!/var/log/casper.log
 ConditionPathExists=!/var/lib/suite/primer-arranque.hecho
 
 [Service]

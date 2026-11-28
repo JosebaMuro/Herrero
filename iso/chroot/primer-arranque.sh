@@ -9,6 +9,8 @@
 # Si falta la red o la gráfica aún no está lista, lo pendiente se reintenta en el siguiente
 # arranque. Registro: /var/log/suite-primer-arranque.log
 set -uo pipefail
+# en la sesión live no hay nada que hacer (el servicio ya lo evita; por si se lanza a mano)
+if [[ -e /var/log/casper.log || -e /run/casper-md5check.json ]]; then exit 0; fi
 MARCA=/var/lib/suite/primer-arranque.hecho
 LOG=/var/log/suite-primer-arranque.log
 mkdir -p /var/lib/suite
